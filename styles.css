@@ -1,28 +1,30 @@
 :root {
-  color-scheme: light dark;
-  --bg: #f4f6fb;
-  --bg-end: #e0e7ff;
-  --fg: #1a1d29;
-  --card-bg: rgba(255, 255, 255, 0.85);
-  --card-border: rgba(15, 23, 42, 0.08);
-  --card-shadow: rgba(15, 23, 42, 0.12);
+  color-scheme: dark;
+  --bg: #0b0d17;
+  --bg-end: #141829;
+  --fg: #f4f6fb;
+  --fg-muted: #9ba3b8;
+  --card-bg: linear-gradient(160deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.02));
+  --card-border: rgba(255, 255, 255, 0.08);
+  --card-shadow: rgba(0, 0, 0, 0.45);
+  /* Base accent is the darker indigo so white button labels clear WCAG AA. */
   --accent: #4f46e5;
+  --accent-hover: #6366f1;
+  --accent-active: #4338ca;
   --accent-fg: #ffffff;
-  --accent-hover: #4338ca;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #1a1d29;
-    --bg-end: #2a2f45;
-    --fg: #f4f6fb;
-    --card-bg: rgba(255, 255, 255, 0.08);
-    --card-border: rgba(255, 255, 255, 0.12);
-    --card-shadow: rgba(0, 0, 0, 0.35);
-    --accent: #818cf8;
-    --accent-fg: #1a1d29;
-    --accent-hover: #a5b4fc;
-  }
+  --surface: rgba(255, 255, 255, 0.04);
+  --surface-border: rgba(255, 255, 255, 0.1);
+  --operator-bg: rgba(99, 102, 241, 0.16);
+  --operator-fg: #c7c9ff;
+  --operator-hover: rgba(99, 102, 241, 0.28);
+  --operator-active: rgba(99, 102, 241, 0.4);
+  --digit-bg: rgba(255, 255, 255, 0.04);
+  --digit-hover: rgba(255, 255, 255, 0.09);
+  --digit-active: rgba(255, 255, 255, 0.14);
+  --function-bg: rgba(255, 255, 255, 0.1);
+  --function-fg: #e2e4ee;
+  --function-hover: rgba(255, 255, 255, 0.16);
+  --function-active: rgba(255, 255, 255, 0.22);
 }
 
 * {
@@ -33,67 +35,236 @@ body {
   margin: 0;
   min-height: 100vh;
   min-height: 100dvh;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: linear-gradient(135deg, var(--bg), var(--bg-end));
+  background: radial-gradient(circle at top, var(--bg-end), var(--bg) 60%);
   color: var(--fg);
-  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  padding: 1.5rem;
+  font-family: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  padding: clamp(1.5rem, 5vw, 3.5rem) 1.25rem;
 }
 
-.hero {
+.page {
+  max-width: 56rem;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: clamp(2rem, 5vw, 3rem);
+}
+
+.page-header {
   text-align: center;
-  padding: clamp(1.5rem, 5vw, 3rem) clamp(1.5rem, 6vw, 4rem);
-  border-radius: 1rem;
-  background: var(--card-bg);
-  border: 1px solid var(--card-border);
-  -webkit-backdrop-filter: blur(6px);
-  backdrop-filter: blur(6px);
-  box-shadow: 0 1rem 2.5rem var(--card-shadow);
-  max-width: 90vw;
 }
 
 h1 {
   margin: 0;
-  font-size: clamp(1.5rem, 6vw, 3rem);
+  font-size: clamp(1.75rem, 5vw, 2.75rem);
   font-weight: 700;
   letter-spacing: -0.02em;
   line-height: 1.2;
 }
 
-.counter-row {
-  margin-top: clamp(1rem, 3vw, 1.5rem);
+.subtitle {
+  margin: 0.5rem 0 0;
+  font-size: clamp(0.95rem, 2.5vw, 1.1rem);
+  color: var(--fg-muted);
+}
+
+.dashboard {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: clamp(1.25rem, 3vw, 1.75rem);
+  align-items: stretch;
+}
+
+@media (max-width: 42rem) {
+  .dashboard {
+    grid-template-columns: 1fr;
+  }
+}
+
+.card {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 1.25rem;
+  padding: clamp(1.5rem, 4vw, 2rem);
+  box-shadow: 0 1.25rem 2.5rem var(--card-shadow);
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: center;
-  gap: 1rem;
+  flex-direction: column;
+  gap: 1.25rem;
 }
 
-.counter-label {
+.card-title {
   margin: 0;
-  font-size: clamp(1rem, 3vw, 1.25rem);
+  font-size: 0.8rem;
   font-weight: 600;
+  letter-spacing: 0.08em;
+  color: var(--fg-muted);
+  text-transform: uppercase;
 }
 
-.counter-button {
-  padding: 0.5rem 1.25rem;
-  border-radius: 0.5rem;
+/* Counter card */
+
+.counter-card {
+  align-items: center;
+  text-align: center;
+}
+
+.counter-value {
+  /* Take up the leftover vertical space instead of centring the whole
+     card, so this card's title stays top-anchored in line with the
+     calculator card's title when the two are shown side by side. */
+  margin-block: auto;
+  font-size: clamp(3rem, 10vw, 4.5rem);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+  transition: transform 0.18s ease;
+}
+
+.counter-value.bump {
+  transform: scale(1.12);
+}
+
+.btn {
   border: none;
+  border-radius: 0.75rem;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background-color 0.15s ease, transform 0.08s ease, box-shadow 0.15s ease;
+}
+
+.btn:active {
+  transform: scale(0.96);
+}
+
+.btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.btn-primary {
   background: var(--accent);
   color: var(--accent-fg);
-  font-size: 1rem;
+  font-size: 1.05rem;
   font-weight: 600;
-  cursor: pointer;
-  transition: background-color 0.15s ease;
+  padding: 0.75rem 2.5rem;
+  box-shadow: 0 0.5rem 1.25rem rgba(99, 102, 241, 0.35);
 }
 
-.counter-button:hover {
+.btn-primary:hover {
   background: var(--accent-hover);
 }
 
-.counter-button:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
+.btn-primary:active {
+  background: var(--accent-active);
+}
+
+/* Calculator card */
+
+.calculator-display {
+  background: var(--surface);
+  border: 1px solid var(--surface-border);
+  border-radius: 0.75rem;
+  padding: 1rem 1.1rem;
+  font-size: clamp(1.25rem, 4vw, 1.75rem);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  letter-spacing: -0.01em;
+  overflow-x: auto;
+  white-space: nowrap;
+}
+
+.calculator-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-auto-rows: minmax(2.75rem, 1fr);
+  grid-auto-flow: row dense;
+  gap: 0.6rem;
+}
+
+.calculator-grid .btn {
+  width: 100%;
+  height: 100%;
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.btn-digit {
+  background: var(--digit-bg);
+  color: var(--fg);
+}
+
+.btn-digit:hover {
+  background: var(--digit-hover);
+}
+
+.btn-digit:active {
+  background: var(--digit-active);
+}
+
+.btn-function {
+  background: var(--function-bg);
+  color: var(--function-fg);
+}
+
+.btn-function:hover {
+  background: var(--function-hover);
+}
+
+.btn-function:active {
+  background: var(--function-active);
+}
+
+.btn-operator {
+  background: var(--operator-bg);
+  color: var(--operator-fg);
+}
+
+.btn-operator:hover {
+  background: var(--operator-hover);
+}
+
+.btn-operator:active {
+  background: var(--operator-active);
+}
+
+/* `grid-row: 4 / span 2` and `.btn-zero`'s column span below are tied to
+   the current 5-row, 4-column button layout in index.html (rows: C/⌫/÷/×,
+   7/8/9/−, 4/5/6/+, 1/2/3/=, 0/.). If the button grid is reordered or grows
+   a row, these positions must be revisited or the layout will silently
+   break. */
+.btn-equals {
+  background: var(--accent);
+  color: var(--accent-fg);
+  grid-column: 4;
+  grid-row: 4 / span 2;
+}
+
+.btn-equals:hover {
+  background: var(--accent-hover);
+}
+
+.btn-equals:active {
+  background: var(--accent-active);
+}
+
+.btn-zero {
+  grid-column: 1 / span 2;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .counter-value {
+    transition: none;
+  }
+
+  .counter-value.bump {
+    transform: none;
+  }
+
+  .btn {
+    transition: none;
+  }
+
+  .btn:active {
+    transform: none;
+  }
 }
