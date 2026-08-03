@@ -50,6 +50,15 @@ function displayText(dom) {
   return dom.window.document.getElementById('calculator-display').textContent;
 }
 
+// Counts significant digits the way script.js's countDigits() does -- the
+// leading "0" placeholder of a bare ".x" operand is not significant, and
+// neither a sign nor a decimal point ever inflates the count. Used to assert
+// the actual MAX_OPERAND_LENGTH invariant (digits), not the display string's
+// raw length.
+function digitCount(str) {
+  return (str.replace(/^-?0(?=\.)/, '').match(/\d/g) || []).length;
+}
+
 test('4503599627370496 x 2 = displays 9007199254740992 (AID-18 repro 1)', async (t) => {
   const dom = await loadCalculator(t);
   click(dom, 'button[data-action="clear"]');
@@ -143,4 +152,87 @@ test('12 x 12 = displays 144 (ordinary small-number sanity check)', async (t) =>
   clickDigits(dom, '12');
   click(dom, 'button[data-action="equals"]');
   assert.equal(displayText(dom), '144');
+});
+
+test('16 digits then negate displays -1234567890123456, still 16 digits (AID-19 repro)', async (t) => {
+  const dom = await loadCalculator(t);
+  click(dom, 'button[data-action="clear"]');
+  clickDigits(dom, '1234567890123456');
+  click(dom, 'button[data-action="negate"]');
+  const shown = displayText(dom);
+  assert.equal(shown, '-1234567890123456');
+  assert.equal(digitCount(shown), 16);
+});
+
+test('a 17th digit is still ignored after negating a 16-digit operand', async (t) => {
+  const dom = await loadCalculator(t);
+  click(dom, 'button[data-action="clear"]');
+  clickDigits(dom, '1234567890123456');
+  click(dom, 'button[data-action="negate"]');
+  clickDigits(dom, '7');
+  const shown = displayText(dom);
+  assert.equal(shown, '-1234567890123456');
+  assert.equal(digitCount(shown), 16);
+});
+
+test('negating early then typing still reaches a full 16-digit budget (-1111111111111111)', async (t) => {
+  const dom = await loadCalculator(t);
+  click(dom, 'button[data-action="clear"]');
+  clickDigits(dom, '1');
+  click(dom, 'button[data-action="negate"]');
+  clickDigits(dom, '111111111111111');
+  const shown = displayText(dom);
+  assert.equal(shown, '-1111111111111111');
+  assert.equal(digitCount(shown), 16);
+});
+
+// The AID-16 (decimal point) and AID-19 (sign) cases meet here: neither the
+// '.' nor the '-' nor the leading "0" placeholder is charged against the
+// 16-digit budget, so this operand is at the cap with 19 characters shown.
+test('a negated 0.x operand gets the full 16-digit budget and no more', async (t) => {
+  const dom = await loadCalculator(t);
+  click(dom, 'button[data-action="clear"]');
+  clickDigits(dom, '0');
+  click(dom, 'button[data-action="decimal"]');
+  clickDigits(dom, '1234567890123456');
+  click(dom, 'button[data-action="negate"]');
+  let shown = displayText(dom);
+  assert.equal(shown, '-0.1234567890123456');
+  assert.equal(digitCount(shown), 16);
+
+  clickDigits(dom, '7');
+  shown = displayText(dom);
+  assert.equal(shown, '-0.1234567890123456');
+  assert.equal(digitCount(shown), 16);
+});
+
+test('negate twice returns the exact original 16-digit string', async (t) => {
+  const dom = await loadCalculator(t);
+  click(dom, 'button[data-action="clear"]');
+  clickDigits(dom, '1234567890123456');
+  click(dom, 'button[data-action="negate"]');
+  click(dom, 'button[data-action="negate"]');
+  assert.equal(displayText(dom), '1234567890123456');
+});
+
+test('zero in any typed form stays 0 under negate', async (t) => {
+  const dom = await loadCalculator(t);
+
+  click(dom, 'button[data-action="clear"]');
+  clickDigits(dom, '0');
+  click(dom, 'button[data-action="negate"]');
+  assert.equal(displayText(dom), '0');
+
+  click(dom, 'button[data-action="clear"]');
+  clickDigits(dom, '0');
+  click(dom, 'button[data-action="decimal"]');
+  click(dom, 'button[data-action="negate"]');
+  assert.equal(displayText(dom), '0.');
+
+  click(dom, 'button[data-action="clear"]');
+  clickDigits(dom, '0');
+  click(dom, 'button[data-action="decimal"]');
+  clickDigits(dom, '00');
+  click(dom, 'button[data-action="negate"]');
+  assert.equal(displayText(dom), '0.00');
 });
