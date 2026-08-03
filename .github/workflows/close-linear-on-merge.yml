@@ -1,0 +1,109 @@
+name: Close Linear issue on PR merge
+
+# Drop this file into a TARGET repo at .github/workflows/close-linear-on-merge.yml.
+# It moves the linked Linear issue to Done whenever a PR is MERGED — on ANY branch,
+# not just the default one. It closes: (a) issues named by a CLOSING magic word
+# (e.g. `Fixes AID-11`) in the PR title/body, and (b) the issue in the head BRANCH name
+# (e.g. AID-11-...), which the loop always sets. Bare or non-closing mentions
+# (`ref`, `relates to`) are ignored so unrelated issues are never closed by accident.
+#
+# One-time setup in the target repo:
+#   Settings > Secrets and variables > Actions > New repository secret
+#     LINEAR_API_KEY = <a Linear personal API key that can update issues>
+#   (optional) Variables:  TEAM_KEY = AID   # your Linear team key; defaults to AID
+
+on:
+  pull_request:
+    types: [closed]
+
+permissions:
+  contents: read
+
+jobs:
+  close-linear:
+    # Only act on real merges, never on PRs that are just closed.
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Move linked Linear issue(s) to Done
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          TEAM_KEY: ${{ vars.TEAM_KEY || 'AID' }}
+          # Passed as env (not inlined) so PR text can't break the script.
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_BRANCH: ${{ github.event.pull_request.head.ref }}
+          BASE_BRANCH: ${{ github.event.pull_request.base.ref }}
+        run: |
+          python3 - <<'PY'
+          import json, os, re, sys, urllib.request, urllib.error
+
+          API = "https://api.linear.app/graphql"
+          KEY = os.environ.get("LINEAR_API_KEY")
+          TEAM = os.environ.get("TEAM_KEY", "AID").strip() or "AID"
+          if not KEY:
+              sys.exit("Missing LINEAR_API_KEY secret in this repo.")
+
+          def gql(query, variables=None):
+              body = json.dumps({"query": query, "variables": variables or {}}).encode()
+              req = urllib.request.Request(API, data=body, headers={
+                  "Content-Type": "application/json", "Authorization": KEY})
+              try:
+                  with urllib.request.urlopen(req) as r:
+                      data = json.loads(r.read())
+              except urllib.error.HTTPError as e:
+                  sys.exit(f"Linear API HTTP {e.code}: {e.read().decode()[:300]}")
+              if data.get("errors"):
+                  sys.exit(f"Linear API error: {data['errors']}")
+              return data["data"]
+
+          title_body = "\n".join(os.environ.get(k, "") or "" for k in ("PR_TITLE", "PR_BODY"))
+          branch = os.environ.get("PR_BRANCH", "") or ""
+          T = re.escape(TEAM)
+          # (a) issues explicitly closed by a magic word in the title/body, plus
+          # (b) the issue this branch implements. Non-closing mentions are ignored.
+          closing = re.findall(
+              rf"\b(?:close[sd]?|closing|fix(?:e[sd])?|fixing|resolve[sd]?|resolving|"
+              rf"complete[sd]?|completing|implement(?:s|ed)?|implementing)\s+{T}-(\d+)\b",
+              title_body, re.I)
+          from_branch = re.findall(rf"\b{T}-(\d+)\b", branch, re.I)
+          ids = sorted({f"{TEAM}-{n}" for n in (closing + from_branch)},
+                       key=lambda s: int(s.split("-")[1]))
+          if not ids:
+              print(f"No closing {TEAM}-<n> magic word and no {TEAM}-<n> branch name; nothing to close.")
+              sys.exit(0)
+
+          # Resolve the team's Done (completed-type) state once.
+          teams = gql("""query($k:String!){ teams(filter:{key:{eq:$k}}){
+                           nodes{ id states(first:50){ nodes{ id name type } } } } }""",
+                      {"k": TEAM})["teams"]["nodes"]
+          if not teams:
+              sys.exit(f"No Linear team with key '{TEAM}'.")
+          states = teams[0]["states"]["nodes"]
+          completed = [s for s in states if s["type"] == "completed"]
+          done = next((s for s in completed if s["name"].lower() == "done"), None) \
+                 or (completed[0] if completed else None)
+          if not done:
+              sys.exit(f"Team '{TEAM}' has no completed-type state to move issues into.")
+
+          for ident in ids:
+              num = int(ident.split("-")[1])
+              nodes = gql("""query($k:String!,$n:Float!){
+                               issues(filter:{team:{key:{eq:$k}},number:{eq:$n}},first:1){
+                                 nodes{ id identifier state{ type } } } }""",
+                          {"k": TEAM, "n": num})["issues"]["nodes"]
+              if not nodes:
+                  print(f"{ident}: not found, skipping.")
+                  continue
+              issue = nodes[0]
+              if (issue.get("state") or {}).get("type") in ("completed", "canceled"):
+                  print(f"{ident}: already {issue['state']['type']}, skipping.")
+                  continue
+              gql("""mutation($id:String!,$s:String!){
+                       issueUpdate(id:$id, input:{stateId:$s}){ success } }""",
+                  {"id": issue["id"], "s": done["id"]})
+              print(f"{ident}: moved to '{done['name']}'.")
+          PY
