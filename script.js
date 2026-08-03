@@ -205,7 +205,14 @@ function applyOperator(a, operator, b) {
 
 function chooseOperator(operator) {
   if (calculatorState.error) {
-    return;
+    // Recover like the other keys (see inputDigit/backspace above) instead of
+    // silently dropping the press: reset to a well-defined baseline operand
+    // before the pressed operator is applied below.
+    calculatorState.error = false;
+    calculatorState.current = '0';
+    calculatorState.previous = 0;
+    calculatorState.operator = null;
+    calculatorState.overwrite = true;
   }
 
   const currentValue = parseFloat(calculatorState.current);
