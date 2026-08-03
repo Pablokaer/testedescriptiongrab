@@ -432,6 +432,41 @@ test('+/- on a computed result after = still leaves it non-editable', async (t) 
   assert.equal(displayText(dom), '2');
 });
 
+test('1000000000000000 x 1000000 = displays 1000000000000000000000, no exponent (AID-21 repro 1)', async (t) => {
+  const dom = await loadCalculator(t);
+  click(dom, 'button[data-action="clear"]');
+  clickDigits(dom, '1000000000000000');
+  click(dom, 'button[data-action="operator"][data-operator="*"]');
+  clickDigits(dom, '1000000');
+  click(dom, 'button[data-action="equals"]');
+  assert.equal(displayText(dom), '1000000000000000000000');
+
+  // The sign is preserved too: negating the same result must not reintroduce
+  // an exponent either.
+  click(dom, 'button[data-action="negate"]');
+  assert.equal(displayText(dom), '-1000000000000000000000');
+});
+
+test('99999999999 x 99999999999 = displays 9999999999800000000000, no exponent (AID-21 repro 2)', async (t) => {
+  const dom = await loadCalculator(t);
+  click(dom, 'button[data-action="clear"]');
+  clickDigits(dom, '99999999999');
+  click(dom, 'button[data-action="operator"][data-operator="*"]');
+  clickDigits(dom, '99999999999');
+  click(dom, 'button[data-action="equals"]');
+  assert.equal(displayText(dom), '9999999999800000000000');
+});
+
+test('1000000000000000 x 100000 = still displays 100000000000000000000 (just below the 1e21 boundary)', async (t) => {
+  const dom = await loadCalculator(t);
+  click(dom, 'button[data-action="clear"]');
+  clickDigits(dom, '1000000000000000');
+  click(dom, 'button[data-action="operator"][data-operator="*"]');
+  clickDigits(dom, '100000');
+  click(dom, 'button[data-action="equals"]');
+  assert.equal(displayText(dom), '100000000000000000000');
+});
+
 test('zero in any typed form stays 0 under negate', async (t) => {
   const dom = await loadCalculator(t);
 
