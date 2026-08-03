@@ -215,6 +215,36 @@ test('negate twice returns the exact original 16-digit string', async (t) => {
   assert.equal(displayText(dom), '1234567890123456');
 });
 
+test('1000000000000000 x 1000000 = displays 1000000000000000000000, not scientific notation (AID-21 repro 1)', async (t) => {
+  const dom = await loadCalculator(t);
+  click(dom, 'button[data-action="clear"]');
+  clickDigits(dom, '1000000000000000');
+  click(dom, 'button[data-action="operator"][data-operator="*"]');
+  clickDigits(dom, '1000000');
+  click(dom, 'button[data-action="equals"]');
+  assert.equal(displayText(dom), '1000000000000000000000');
+});
+
+test('99999999999 x 99999999999 = displays 9999999999800000000000, not scientific notation (AID-21 repro 2)', async (t) => {
+  const dom = await loadCalculator(t);
+  click(dom, 'button[data-action="clear"]');
+  clickDigits(dom, '99999999999');
+  click(dom, 'button[data-action="operator"][data-operator="*"]');
+  clickDigits(dom, '99999999999');
+  click(dom, 'button[data-action="equals"]');
+  assert.equal(displayText(dom), '9999999999800000000000');
+});
+
+test('1000000000000000 x 100000 = displays 100000000000000000000, just below the 1e21 boundary (AID-21 control)', async (t) => {
+  const dom = await loadCalculator(t);
+  click(dom, 'button[data-action="clear"]');
+  clickDigits(dom, '1000000000000000');
+  click(dom, 'button[data-action="operator"][data-operator="*"]');
+  clickDigits(dom, '100000');
+  click(dom, 'button[data-action="equals"]');
+  assert.equal(displayText(dom), '100000000000000000000');
+});
+
 test('zero in any typed form stays 0 under negate', async (t) => {
   const dom = await loadCalculator(t);
 

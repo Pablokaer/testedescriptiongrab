@@ -57,6 +57,23 @@ const calculatorState = {
   lastOperand: null, // number applied by the most recent "=", for repeat-on-equals
 };
 
+// toString() switches to exponential notation for any integer-valued double
+// with magnitude >= 1e21 (e.g. "1e+21", "9.9999999998e+21"). This expands
+// that back into a plain digit string -- mantissa digits with the decimal
+// point removed, right-padded with zeros up to the exponent -- without
+// inventing any digits beyond what toString() already produced, and without
+// touching values toString() rendered in plain form to begin with.
+function expandExponential(str) {
+  const match = /^(-?)(\d+)(?:\.(\d+))?e\+(\d+)$/i.exec(str);
+  if (!match) {
+    return str;
+  }
+  const [, sign, intDigits, fracDigits = '', exponentStr] = match;
+  const exponent = Number(exponentStr);
+  const digits = intDigits + fracDigits;
+  return sign + digits + '0'.repeat(exponent - fracDigits.length);
+}
+
 function formatNumber(num) {
   if (!Number.isFinite(num)) {
     return 'Error';
@@ -69,7 +86,7 @@ function formatNumber(num) {
   // every exact integer double actually representable above it.) toString()
   // already renders -0 as "0", so no separate normalisation is needed here.
   if (Number.isInteger(num)) {
-    return num.toString();
+    return expandExponential(num.toString());
   }
   // Normalise to 15 significant digits to remove float noise (e.g.
   // 0.1 + 0.2) without collapsing very small results to 0 or overflowing
