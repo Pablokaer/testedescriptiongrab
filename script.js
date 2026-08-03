@@ -61,10 +61,14 @@ function formatNumber(num) {
   if (!Number.isFinite(num)) {
     return 'Error';
   }
-  // Doubles represent integers exactly up to MAX_SAFE_INTEGER (16 digits), so
-  // those results need no float-noise cleanup: return them verbatim rather than
-  // let toPrecision(15) below round away their real 16th digit.
-  if (Number.isInteger(num) && Math.abs(num) <= Number.MAX_SAFE_INTEGER) {
+  // Any value that is already an exact integer double has no fractional part
+  // left to carry float noise, no matter its magnitude, so it needs no
+  // cleanup at all: return it verbatim rather than let toPrecision(15) below
+  // round away real digits beyond its 15 significant digits. (This used to be
+  // gated at MAX_SAFE_INTEGER, which clipped the fast path one ULP short of
+  // every exact integer double actually representable above it.) toString()
+  // already renders -0 as "0", so no separate normalisation is needed here.
+  if (Number.isInteger(num)) {
     return num.toString();
   }
   // Normalise to 15 significant digits to remove float noise (e.g.
