@@ -1,0 +1,10 @@
+{
+  "name": "hello-world-mr-pipoca",
+  "private": true,
+  "scripts": {
+    "test": "node --test"
+  },
+  "devDependencies": {
+    "jsdom": "^26.0.0"
+  }
+}
