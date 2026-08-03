@@ -421,7 +421,14 @@ document.addEventListener('keydown', (event) => {
     return;
   }
 
-  if (key === '.') {
+  // Accept ',' as an alias for '.': on non-US keyboard layouts (German,
+  // Brazilian, French, Spanish, Nordic, ...) the physical decimal key types
+  // ',' rather than '.'. Some browsers also report the numpad separator key
+  // itself as 'Decimal' or 'Separator'. All of these funnel through the same
+  // inputDecimal() call so there is a single code path -- and thus a single
+  // "only one decimal point" / "leading 0." rule -- and the internal state
+  // and display keep rendering '.', never ','.
+  if (key === '.' || key === ',' || key === 'Decimal' || key === 'Separator') {
     inputDecimal();
     return;
   }
