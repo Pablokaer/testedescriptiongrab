@@ -1,0 +1,128 @@
+name: Validate PR with Claude
+
+# Drop this into a TARGET repo at .github/workflows/pr-validate.yml.
+# On every pull request (any author), Claude reviews the diff and submits a GitHub
+# review: APPROVE when it is correct and safe, REQUEST CHANGES when it finds problems.
+# This is the post-PR counterpart to the loop's in-repo `code-reviewer`.
+#
+# One-time setup in the target repo:
+#   Settings > Secrets and variables > Actions > New repository secret
+#     ANTHROPIC_API_KEY = <key that can run Claude>
+#   (GITHUB_TOKEN is provided automatically; the job requests pull-requests: write.)
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  validate:
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Claude Code CLI
+        run: npm install -g @anthropic-ai/claude-code
+
+      - name: Collect the PR diff
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        run: gh pr diff "$PR" --repo "${{ github.repository }}" > pr.diff
+
+      - name: Write the review prompt
+        run: |
+          cat > prompt.txt <<'PROMPT'
+          You are a strict pull-request validator. Review ONLY the changes in ./pr.diff.
+          The PR title and description are in the env vars PR_TITLE and PR_BODY.
+
+          Check, and report concrete findings (not vibes):
+          - correctness and edge cases (null/empty/boundary, error paths, precision);
+          - security (injection, secrets in code, missing validation of external input,
+            unsafe defaults, authz);
+          - error handling and resource cleanup;
+          - tests: for non-trivial logic, is there a test that would fail without this
+            change? (skip for static/no-test projects);
+          - adherence to the PR's stated intent (PR_TITLE/PR_BODY);
+          - hygiene: debug leftovers, commented-out code, unrelated changes.
+
+          Write a concise review in markdown: a one-line summary, then specific findings as
+          `file:line - issue - suggested fix`. Prioritise correctness and security over
+          style. You may read other files in the repo for context, but do not modify
+          anything and do not run git write commands.
+
+          On the VERY LAST line, output exactly one of:
+          VERDICT: APPROVE
+          VERDICT: REQUEST_CHANGES
+          Approve only if the diff is correct and safe to merge.
+          PROMPT
+
+      - name: Run Claude review
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          claude -p "$(cat prompt.txt)" \
+            --output-format json \
+            --dangerously-skip-permissions \
+            --allowedTools "Read,Bash,Grep,Glob" \
+            --max-turns 20 > claude_out.json || true
+
+      - name: Submit the GitHub review
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          python3 - <<'PY'
+          import json, os, re, subprocess, sys
+
+          try:
+              out = json.load(open("claude_out.json"))
+              review = (out.get("result") or "").strip()
+          except Exception as e:
+              review = ""
+          if not review:
+              review = "Claude PR validator could not produce a review (see workflow logs)."
+
+          m = re.search(r"VERDICT:\s*(APPROVE|REQUEST_CHANGES)\s*$", review, re.I | re.M)
+          verdict = m.group(1).upper() if m else None
+          # Strip the verdict line from the visible body.
+          body = re.sub(r"\n?VERDICT:\s*(APPROVE|REQUEST_CHANGES)\s*$", "", review,
+                        flags=re.I | re.M).strip() or "(no details)"
+          body = "**Claude PR validator**\n\n" + body
+
+          pr = os.environ["PR"]
+          repo = os.environ.get("GITHUB_REPOSITORY", "")
+          if verdict == "APPROVE":
+              action = "--approve"
+          elif verdict == "REQUEST_CHANGES":
+              action = "--request-changes"
+          else:
+              action = "--comment"   # undecided -> neutral comment, never a silent approve
+              body += "\n\n_(No clear verdict parsed; posting as a comment.)_"
+
+          with open("review_body.md", "w") as f:
+              f.write(body)
+          cmd = ["gh", "pr", "review", pr, "--repo", repo, action, "--body-file", "review_body.md"]
+          print("Running:", " ".join(cmd))
+          r = subprocess.run(cmd)
+          # A bot can't always request-changes/approve in every config; fall back to a comment.
+          if r.returncode != 0 and action != "--comment":
+              subprocess.run(["gh", "pr", "review", pr, "--repo", repo, "--comment",
+                              "--body-file", "review_body.md"])
+          PY

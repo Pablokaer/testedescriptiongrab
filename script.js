@@ -37,6 +37,8 @@ counterValue.addEventListener('transitionend', () => {
 // Example: 2 + 3 × 4 = -> ((2 + 3) * 4) = 20.
 // This is the model most people expect from a "basic calculator" and is
 // simple to reason about and keep correct (no expression parsing needed).
+// Pressing "=" again with nothing pending repeats the last operator and
+// operand against what is displayed: 5 + 3 = -> 8, = -> 11, = -> 14.
 
 const display = document.getElementById('calculator-display');
 const calculatorGrid = document.querySelector('.calculator-grid');
@@ -47,6 +49,8 @@ const calculatorState = {
   operator: null, // pending operator: '+', '-', '*', '/'
   overwrite: true, // next digit press should start a fresh operand
   error: false, // true when the display is showing an error state
+  lastOperator: null, // operator applied by the most recent "=", for repeat-on-equals
+  lastOperand: null, // number applied by the most recent "=", for repeat-on-equals
 };
 
 function formatNumber(num) {
@@ -87,6 +91,8 @@ function resetCalculator() {
   calculatorState.operator = null;
   calculatorState.overwrite = true;
   calculatorState.error = false;
+  calculatorState.lastOperator = null;
+  calculatorState.lastOperand = null;
   updateDisplay();
 }
 
@@ -225,6 +231,10 @@ function chooseOperator(operator) {
       calculatorState.previous = null;
       calculatorState.operator = null;
       calculatorState.overwrite = true;
+      // Wipe the remembered operation too: an error state must never leave a
+      // stale operation for a later "=" to replay (see equals() below).
+      calculatorState.lastOperator = null;
+      calculatorState.lastOperand = null;
       updateDisplay();
       return;
     }
@@ -244,16 +254,34 @@ function equals() {
     return;
   }
 
-  if (calculatorState.operator === null || calculatorState.previous === null) {
-    return;
-  }
+  if (calculatorState.operator !== null) {
+    if (calculatorState.previous === null) {
+      return;
+    }
 
-  const currentValue = parseFloat(calculatorState.current);
-  const result = applyOperator(calculatorState.previous, calculatorState.operator, currentValue);
+    const currentValue = parseFloat(calculatorState.current);
+    const result = applyOperator(calculatorState.previous, calculatorState.operator, currentValue);
 
-  if (!Number.isFinite(result)) {
-    calculatorState.error = true;
-    calculatorState.current = 'Error';
+    // Remember the operator and second operand just applied *before* the
+    // pending operation is torn down below, so a later "=" with nothing
+    // pending (see the repeat-on-equals branch further down) can replay it
+    // instead of becoming a no-op.
+    calculatorState.lastOperator = calculatorState.operator;
+    calculatorState.lastOperand = currentValue;
+
+    if (!Number.isFinite(result)) {
+      calculatorState.error = true;
+      calculatorState.current = 'Error';
+      calculatorState.previous = null;
+      calculatorState.operator = null;
+      calculatorState.lastOperator = null;
+      calculatorState.lastOperand = null;
+      calculatorState.overwrite = true;
+      updateDisplay();
+      return;
+    }
+
+    calculatorState.current = formatNumber(result);
     calculatorState.previous = null;
     calculatorState.operator = null;
     calculatorState.overwrite = true;
@@ -261,9 +289,30 @@ function equals() {
     return;
   }
 
+  // Repeat-on-equals: no operator is pending, either because "=" was just
+  // pressed (the case above) or because none has ever been chosen. Replay
+  // the remembered operator/operand against whatever is currently
+  // displayed -- which may be a fresh operand the user just typed -- rather
+  // than the original first operand. If nothing has been computed yet,
+  // stay a no-op instead of inventing an operation.
+  if (calculatorState.lastOperator === null) {
+    return;
+  }
+
+  const currentValue = parseFloat(calculatorState.current);
+  const result = applyOperator(currentValue, calculatorState.lastOperator, calculatorState.lastOperand);
+
+  if (!Number.isFinite(result)) {
+    calculatorState.error = true;
+    calculatorState.current = 'Error';
+    calculatorState.lastOperator = null;
+    calculatorState.lastOperand = null;
+    calculatorState.overwrite = true;
+    updateDisplay();
+    return;
+  }
+
   calculatorState.current = formatNumber(result);
-  calculatorState.previous = null;
-  calculatorState.operator = null;
   calculatorState.overwrite = true;
   updateDisplay();
 }
