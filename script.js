@@ -39,6 +39,10 @@ counterValue.addEventListener('transitionend', () => {
 // simple to reason about and keep correct (no expression parsing needed).
 // Pressing "=" again with nothing pending repeats the last operator and
 // operand against what is displayed: 5 + 3 = -> 8, = -> 11, = -> 14.
+// Backspace, pressed right after choosing an operator (before any digit of
+// the second operand is typed), cancels that pending operator instead of
+// deleting digits, putting the accumulator back on the display as the value
+// to continue from.
 
 const display = document.getElementById('calculator-display');
 const calculatorGrid = document.querySelector('.calculator-grid');
@@ -154,7 +158,35 @@ function backspace() {
     return;
   }
 
+  // `overwrite` alone conflates three different situations: (1) an operator
+  // is pending and no digit of the second operand is currently entered (none
+  // typed yet, or all of them backspaced away), (2) a result was just
+  // computed by "=", and (3) the state is fresh after "AC".
+  // Only (1) has a concrete last action worth undoing -- the just-chosen
+  // operator -- so cancel it and put the accumulator back on the display as
+  // the value in hand. `overwrite` deliberately stays true: the restored
+  // accumulator is a value to continue from, not a fresh entry to edit, so a
+  // further backspace is a no-op and the next digit replaces it -- the same
+  // stance as after "=".
+  // (2) and (3) leave `operator` null and must stay a no-op: a computed
+  // result (or a blank slate) is not something backspace can meaningfully
+  // peel a digit off of, matching the non-editable stance in negate() below.
   if (calculatorState.overwrite) {
+    if (calculatorState.operator === null) {
+      return;
+    }
+    // Defensive: chooseOperator always sets `previous` alongside `operator`,
+    // so this is never null here (same shape as the guard in equals()).
+    if (calculatorState.previous !== null) {
+      calculatorState.current = formatNumber(calculatorState.previous);
+    }
+    calculatorState.previous = null;
+    calculatorState.operator = null;
+    // `lastOperator`/`lastOperand` are intentionally left alone: cancelling
+    // an operator should be indistinguishable from never having pressed it,
+    // so a later "=" still replays the remembered operation: "5 + 3 = 2 *"
+    // then backspace then "=" gives the same 5 as "5 + 3 = 2 =".
+    updateDisplay();
     return;
   }
 
