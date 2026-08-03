@@ -43,6 +43,18 @@ counterValue.addEventListener('transitionend', () => {
 // the second operand is typed), cancels that pending operator instead of
 // deleting digits, putting the accumulator back on the display as the value
 // to continue from.
+// "+/-", pressed in that same window (an operator pending, no digit of the
+// second operand typed yet), flips the sign shown on the accumulator without
+// turning it into an editable entry: the accumulator itself stays intact (so
+// a further "+/-" simply flips it back, and Backspace still cancels the
+// operator per above) while the sign is remembered as a pending flag that the
+// first digit or "." of the second operand then carries onto that fresh
+// operand -- see `pendingNegative` below and negate()/inputDigit()/
+// inputDecimal(). Pressing another operator instead of a digit in that same
+// window is a plain operator swap, same as pressing two operators back to
+// back with no "+/-" involved (5 + * leaves the accumulator at 5): it
+// discards the pending sign rather than folding it into the accumulator --
+// see the `else` branch of chooseOperator() below.
 
 const display = document.getElementById('calculator-display');
 const calculatorGrid = document.querySelector('.calculator-grid');
@@ -52,6 +64,15 @@ const calculatorState = {
   previous: null, // number, the running accumulator
   operator: null, // pending operator: '+', '-', '*', '/'
   overwrite: true, // next digit press should start a fresh operand
+  // Set by negate() only while `overwrite` is true and an operator is
+  // pending, i.e. `current` is still just a rendering of the accumulator
+  // and no digit of the second operand has been typed yet. `overwrite`
+  // alone says "the next digit replaces rather than extends `current`";
+  // this flag additionally says "and it should carry this sign", so the two
+  // together keep the accumulator copy non-editable while still letting the
+  // user see and apply a sign before typing anything. Consumed by the first
+  // inputDigit()/inputDecimal() call that starts the fresh operand.
+  pendingNegative: false,
   error: false, // true when the display is showing an error state
   lastOperator: null, // operator applied by the most recent "=", for repeat-on-equals
   lastOperand: null, // number applied by the most recent "=", for repeat-on-equals
@@ -98,6 +119,7 @@ function resetCalculator() {
   calculatorState.previous = null;
   calculatorState.operator = null;
   calculatorState.overwrite = true;
+  calculatorState.pendingNegative = false;
   calculatorState.error = false;
   calculatorState.lastOperator = null;
   calculatorState.lastOperand = null;
@@ -131,20 +153,36 @@ function countDigits(str) {
   return (str.replace(/^-?0(?=\.)/, '').match(/\d/g) || []).length;
 }
 
+// Carries a pending sign (see `pendingNegative` above) onto the first
+// significant digit of a fresh operand, and consumes it once applied. A bare
+// "0" never takes the sign -- it is only a placeholder digit, not a value of
+// its own (inputDigit() below still special-cases and replaces it), and a
+// standalone "-0" would violate the same "never show -0" rule negate() and
+// formatNumber() already enforce -- so the pending sign survives a leading
+// "0" for the next digit to pick up instead.
+function consumeSign(digit) {
+  if (!calculatorState.pendingNegative || digit === '0') {
+    return digit;
+  }
+  calculatorState.pendingNegative = false;
+  return `-${digit}`;
+}
+
 function inputDigit(digit) {
   if (calculatorState.error) {
     calculatorState.error = false;
     calculatorState.current = digit;
     calculatorState.overwrite = false;
+    calculatorState.pendingNegative = false;
     updateDisplay();
     return;
   }
 
   if (calculatorState.overwrite) {
-    calculatorState.current = digit === '0' ? '0' : digit;
+    calculatorState.current = consumeSign(digit);
     calculatorState.overwrite = false;
   } else if (calculatorState.current === '0') {
-    calculatorState.current = digit;
+    calculatorState.current = consumeSign(digit);
   } else if (countDigits(calculatorState.current) < MAX_OPERAND_LENGTH) {
     calculatorState.current += digit;
   } else {
@@ -158,12 +196,17 @@ function inputDecimal() {
     calculatorState.error = false;
     calculatorState.current = '0.';
     calculatorState.overwrite = false;
+    calculatorState.pendingNegative = false;
     updateDisplay();
     return;
   }
 
   if (calculatorState.overwrite) {
-    calculatorState.current = '0.';
+    // Unlike a lone "0" in inputDigit() above, "0." is already a value in
+    // progress (e.g. on its way to "0.5"), so a pending sign is meaningful
+    // here and applies immediately instead of waiting for a later digit.
+    calculatorState.current = calculatorState.pendingNegative ? '-0.' : '0.';
+    calculatorState.pendingNegative = false;
     calculatorState.overwrite = false;
     updateDisplay();
     return;
@@ -171,6 +214,16 @@ function inputDecimal() {
 
   if (calculatorState.current.includes('.') || countDigits(calculatorState.current) >= MAX_OPERAND_LENGTH) {
     return;
+  }
+
+  // The only reachable non-overwrite state with a pending sign is
+  // `current === "0"`: consumeSign() deliberately leaves a lone "0"
+  // placeholder digit unsigned (see its comment) so the sign survives to be
+  // picked up here, once the "0" turns out to be the start of a decimal
+  // rather than the whole operand.
+  if (calculatorState.pendingNegative) {
+    calculatorState.current = `-${calculatorState.current}`; // "0" -> "-0."
+    calculatorState.pendingNegative = false;
   }
 
   calculatorState.current += '.';
@@ -207,6 +260,10 @@ function backspace() {
     }
     calculatorState.previous = null;
     calculatorState.operator = null;
+    // Cancelling the operator also cancels any sign the user asked for with
+    // "+/-" while it was pending (see `pendingNegative` above): it never
+    // applied to a real digit, so nothing to restore or carry forward.
+    calculatorState.pendingNegative = false;
     // `lastOperator`/`lastOperand` are intentionally left alone: cancelling
     // an operator should be indistinguishable from never having pressed it,
     // so a later "=" still replays the remembered operation: "5 + 3 = 2 *"
@@ -220,6 +277,12 @@ function backspace() {
   if (calculatorState.current === '0') {
     calculatorState.overwrite = true;
   }
+  // Deleting into this entry also discards any sign still pending on it (see
+  // `pendingNegative` above and consumeSign()): a lone "0" digit deliberately
+  // leaves the sign uncommitted, so backspacing that "0" away must drop the
+  // sign too, restoring parity with the un-negated sequence ("5 + 0
+  // Backspace 2" shows "2", so "5 + +/- 0 Backspace 2" must too).
+  calculatorState.pendingNegative = false;
   updateDisplay();
 }
 
@@ -228,9 +291,19 @@ function negate() {
     return;
   }
 
-  // Zero (in any typed form, e.g. "0", "0.", "0.00") must stay zero rather
-  // than turn into a "-0" that would be confusing on the display.
+  // "+/-" on a zero (in any typed form, e.g. "0", "0.", "0.00") must never
+  // produce a displayed "-0" -- but it must still be able to undo a sign
+  // already on the display (the "-0." that inputDecimal() above seeds for a
+  // pending sign) and to cancel a sign that is still only pending (so a "0"
+  // typed in between two "+/-" presses doesn't make the second one a
+  // no-op). So zero can always *lose* a sign here, it just can never *gain*
+  // one.
   if (parseFloat(calculatorState.current) === 0) {
+    if (calculatorState.current.startsWith('-')) {
+      calculatorState.current = calculatorState.current.slice(1);
+      updateDisplay();
+    }
+    calculatorState.pendingNegative = false;
     return;
   }
 
@@ -242,11 +315,17 @@ function negate() {
     : `-${calculatorState.current}`;
 
   // Only when an operator is pending does `current` still hold a copy of the
-  // accumulator with `overwrite` true (see chooseOperator); clearing the flag
-  // there makes the negated value the next operand. After "=" the display
-  // holds a computed result, which must stay non-editable.
-  if (calculatorState.operator !== null) {
-    calculatorState.overwrite = false;
+  // accumulator with `overwrite` true (see chooseOperator). `overwrite` must
+  // stay true rather than be cleared: `current` is a *rendering* of the
+  // accumulator, not an in-progress entry, so the next digit should replace
+  // it wholesale (see inputDigit/inputDecimal) and Backspace should still
+  // treat this as "nothing typed yet" and cancel the operator (see above).
+  // The sign the user asked for is instead recorded in `pendingNegative` for
+  // those to consume; toggling it (rather than setting it) lets a second
+  // "+/-" here cancel the first. After "=" the display holds a computed
+  // result, which must stay non-editable and has no pending sign to track.
+  if (calculatorState.overwrite && calculatorState.operator !== null) {
+    calculatorState.pendingNegative = !calculatorState.pendingNegative;
   }
   updateDisplay();
 }
@@ -279,6 +358,7 @@ function chooseOperator(operator) {
     calculatorState.previous = 0;
     calculatorState.operator = null;
     calculatorState.overwrite = true;
+    calculatorState.pendingNegative = false;
   }
 
   const currentValue = parseFloat(calculatorState.current);
@@ -291,6 +371,7 @@ function chooseOperator(operator) {
       calculatorState.previous = null;
       calculatorState.operator = null;
       calculatorState.overwrite = true;
+      calculatorState.pendingNegative = false;
       // Wipe the remembered operation too: an error state must never leave a
       // stale operation for a later "=" to replay (see equals() below).
       calculatorState.lastOperator = null;
@@ -301,9 +382,19 @@ function chooseOperator(operator) {
     calculatorState.previous = result;
     calculatorState.current = formatNumber(result);
   } else {
-    calculatorState.previous = currentValue;
+    // `current` may be carrying a display-only sign from "+/-" (see
+    // `pendingNegative`): it belongs to the operand the user was about to
+    // type, not to the accumulator, so an operator swap must not fold it in
+    // -- undo it here the same way the sign was applied, by re-negating.
+    calculatorState.previous = calculatorState.pendingNegative ? -currentValue : currentValue;
   }
 
+  // A pending sign only ever applies to the operand that was in hand for
+  // *this* operator; whether it was just used above (folded into
+  // `currentValue`/`previous`) or is being dropped in favour of a straight
+  // operator swap, the next operand starts clean -- otherwise a stray digit
+  // typed after this point would still pick up a now-stale sign.
+  calculatorState.pendingNegative = false;
   calculatorState.operator = operator;
   calculatorState.overwrite = true;
   updateDisplay();
@@ -337,6 +428,7 @@ function equals() {
       calculatorState.lastOperator = null;
       calculatorState.lastOperand = null;
       calculatorState.overwrite = true;
+      calculatorState.pendingNegative = false;
       updateDisplay();
       return;
     }
@@ -345,6 +437,7 @@ function equals() {
     calculatorState.previous = null;
     calculatorState.operator = null;
     calculatorState.overwrite = true;
+    calculatorState.pendingNegative = false;
     updateDisplay();
     return;
   }

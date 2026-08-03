@@ -215,6 +215,223 @@ test('negate twice returns the exact original 16-digit string', async (t) => {
   assert.equal(displayText(dom), '1234567890123456');
 });
 
+test('5 + +/- 2 = displays 3, not -47 (AID-20 repro A)', async (t) => {
+  const dom = await loadCalculator(t);
+  click(dom, 'button[data-action="clear"]');
+  clickDigits(dom, '5');
+  click(dom, 'button[data-action="operator"][data-operator="+"]');
+  click(dom, 'button[data-action="negate"]');
+  clickDigits(dom, '2');
+  // Intermediate check from the issue: the digit must replace the
+  // accumulator copy ("-2"), not append to it ("-52").
+  assert.equal(displayText(dom), '-2');
+  click(dom, 'button[data-action="equals"]');
+  assert.equal(displayText(dom), '3');
+});
+
+test('5 + +/- Backspace displays 5 and cancels the pending operator (AID-20 repro B)', async (t) => {
+  const dom = await loadCalculator(t);
+  click(dom, 'button[data-action="clear"]');
+  clickDigits(dom, '5');
+  click(dom, 'button[data-action="operator"][data-operator="+"]');
+  click(dom, 'button[data-action="negate"]');
+  click(dom, 'button[data-action="backspace"]');
+  assert.equal(displayText(dom), '5');
+
+  // The cancelled operator must not linger: a bare "=" (nothing pending) is
+  // a no-op just like "5" Backspace "=" would be.
+  click(dom, 'button[data-action="equals"]');
+  assert.equal(displayText(dom), '5');
+});
+
+test('8 - +/- 3 = displays 11 and 2 * +/- 3 = displays -6 (sign carries for every operator)', async (t) => {
+  const dom = await loadCalculator(t);
+  click(dom, 'button[data-action="clear"]');
+  clickDigits(dom, '8');
+  click(dom, 'button[data-action="operator"][data-operator="-"]');
+  click(dom, 'button[data-action="negate"]');
+  clickDigits(dom, '3');
+  click(dom, 'button[data-action="equals"]');
+  assert.equal(displayText(dom), '11');
+
+  click(dom, 'button[data-action="clear"]');
+  clickDigits(dom, '2');
+  click(dom, 'button[data-action="operator"][data-operator="*"]');
+  click(dom, 'button[data-action="negate"]');
+  clickDigits(dom, '3');
+  click(dom, 'button[data-action="equals"]');
+  assert.equal(displayText(dom), '-6');
+});
+
+test('5 + +/- +/- 2 = displays 7 (second +/- cancels the pending sign)', async (t) => {
+  const dom = await loadCalculator(t);
+  click(dom, 'button[data-action="clear"]');
+  clickDigits(dom, '5');
+  click(dom, 'button[data-action="operator"][data-operator="+"]');
+  click(dom, 'button[data-action="negate"]');
+  click(dom, 'button[data-action="negate"]');
+  clickDigits(dom, '2');
+  click(dom, 'button[data-action="equals"]');
+  assert.equal(displayText(dom), '7');
+});
+
+test('5 + +/- = still displays 0 (negated accumulator usable with no digit typed)', async (t) => {
+  const dom = await loadCalculator(t);
+  click(dom, 'button[data-action="clear"]');
+  clickDigits(dom, '5');
+  click(dom, 'button[data-action="operator"][data-operator="+"]');
+  click(dom, 'button[data-action="negate"]');
+  click(dom, 'button[data-action="equals"]');
+  assert.equal(displayText(dom), '0');
+});
+
+test('5 + +/- . 5 = displays 4.5 (a decimal after +/- follows the same sign-carrying rule)', async (t) => {
+  const dom = await loadCalculator(t);
+  click(dom, 'button[data-action="clear"]');
+  clickDigits(dom, '5');
+  click(dom, 'button[data-action="operator"][data-operator="+"]');
+  click(dom, 'button[data-action="negate"]');
+  click(dom, 'button[data-action="decimal"]');
+  clickDigits(dom, '5');
+  click(dom, 'button[data-action="equals"]');
+  assert.equal(displayText(dom), '4.5');
+});
+
+test('5 + +/- 0 . 5 = displays 4.5 (a leading "0" digit before "." still carries the pending sign)', async (t) => {
+  const dom = await loadCalculator(t);
+  click(dom, 'button[data-action="clear"]');
+  clickDigits(dom, '5');
+  click(dom, 'button[data-action="operator"][data-operator="+"]');
+  click(dom, 'button[data-action="negate"]');
+  clickDigits(dom, '0');
+  click(dom, 'button[data-action="decimal"]');
+  clickDigits(dom, '5');
+  click(dom, 'button[data-action="equals"]');
+  assert.equal(displayText(dom), '4.5');
+});
+
+test('5 + +/- 0 +/- 2 = displays 7 (a pending sign survives a "0" digit and a later +/- can still cancel it)', async (t) => {
+  const dom = await loadCalculator(t);
+  click(dom, 'button[data-action="clear"]');
+  clickDigits(dom, '5');
+  click(dom, 'button[data-action="operator"][data-operator="+"]');
+  click(dom, 'button[data-action="negate"]');
+  clickDigits(dom, '0');
+  click(dom, 'button[data-action="negate"]');
+  clickDigits(dom, '2');
+  click(dom, 'button[data-action="equals"]');
+  assert.equal(displayText(dom), '7');
+});
+
+test('5 + +/- . 0 0 displays -0.00, and +/- on it displays 0.00 (a "-0." sign can be undone)', async (t) => {
+  const dom = await loadCalculator(t);
+  click(dom, 'button[data-action="clear"]');
+  clickDigits(dom, '5');
+  click(dom, 'button[data-action="operator"][data-operator="+"]');
+  click(dom, 'button[data-action="negate"]');
+  click(dom, 'button[data-action="decimal"]');
+  clickDigits(dom, '00');
+  assert.equal(displayText(dom), '-0.00');
+
+  click(dom, 'button[data-action="negate"]');
+  assert.equal(displayText(dom), '0.00');
+});
+
+test('5 + +/- 0 Backspace 2 = displays 7 (backspacing the "0" drops the pending sign)', async (t) => {
+  const dom = await loadCalculator(t);
+  click(dom, 'button[data-action="clear"]');
+  clickDigits(dom, '5');
+  click(dom, 'button[data-action="operator"][data-operator="+"]');
+  click(dom, 'button[data-action="negate"]');
+  clickDigits(dom, '0');
+  click(dom, 'button[data-action="backspace"]');
+  clickDigits(dom, '2');
+  click(dom, 'button[data-action="equals"]');
+  assert.equal(displayText(dom), '7');
+});
+
+test('5 + +/- + 2 = displays 7, and 5 + +/- * 2 = displays 10 (an operator swap after +/- discards the pending sign)', async (t) => {
+  const dom = await loadCalculator(t);
+  click(dom, 'button[data-action="clear"]');
+  clickDigits(dom, '5');
+  click(dom, 'button[data-action="operator"][data-operator="+"]');
+  click(dom, 'button[data-action="negate"]');
+  click(dom, 'button[data-action="operator"][data-operator="+"]');
+  clickDigits(dom, '2');
+  click(dom, 'button[data-action="equals"]');
+  assert.equal(displayText(dom), '7');
+
+  click(dom, 'button[data-action="clear"]');
+  clickDigits(dom, '5');
+  click(dom, 'button[data-action="operator"][data-operator="+"]');
+  click(dom, 'button[data-action="negate"]');
+  click(dom, 'button[data-action="operator"][data-operator="*"]');
+  clickDigits(dom, '2');
+  click(dom, 'button[data-action="equals"]');
+  assert.equal(displayText(dom), '10');
+});
+
+test('5 + 2 +/- = still displays 3 (negate on an already-typed operand toggles in place)', async (t) => {
+  const dom = await loadCalculator(t);
+  click(dom, 'button[data-action="clear"]');
+  clickDigits(dom, '5');
+  click(dom, 'button[data-action="operator"][data-operator="+"]');
+  clickDigits(dom, '2');
+  click(dom, 'button[data-action="negate"]');
+  click(dom, 'button[data-action="equals"]');
+  assert.equal(displayText(dom), '3');
+});
+
+test('5 + 3 = = still displays 11, and Backspace-cancel still lets a later = replay', async (t) => {
+  const dom = await loadCalculator(t);
+  click(dom, 'button[data-action="clear"]');
+  clickDigits(dom, '5');
+  click(dom, 'button[data-action="operator"][data-operator="+"]');
+  clickDigits(dom, '3');
+  click(dom, 'button[data-action="equals"]');
+  click(dom, 'button[data-action="equals"]');
+  assert.equal(displayText(dom), '11');
+
+  click(dom, 'button[data-action="clear"]');
+  clickDigits(dom, '5');
+  click(dom, 'button[data-action="operator"][data-operator="+"]');
+  clickDigits(dom, '3');
+  click(dom, 'button[data-action="equals"]');
+  click(dom, 'button[data-action="operator"][data-operator="*"]');
+  click(dom, 'button[data-action="backspace"]');
+  click(dom, 'button[data-action="equals"]');
+  assert.equal(displayText(dom), '11');
+});
+
+test('2 + 3 * 4 = still displays 20 (chained left-to-right arithmetic unaffected)', async (t) => {
+  const dom = await loadCalculator(t);
+  click(dom, 'button[data-action="clear"]');
+  clickDigits(dom, '2');
+  click(dom, 'button[data-action="operator"][data-operator="+"]');
+  clickDigits(dom, '3');
+  click(dom, 'button[data-action="operator"][data-operator="*"]');
+  clickDigits(dom, '4');
+  click(dom, 'button[data-action="equals"]');
+  assert.equal(displayText(dom), '20');
+});
+
+test('+/- on a computed result after = still leaves it non-editable', async (t) => {
+  const dom = await loadCalculator(t);
+  click(dom, 'button[data-action="clear"]');
+  clickDigits(dom, '5');
+  click(dom, 'button[data-action="operator"][data-operator="+"]');
+  clickDigits(dom, '3');
+  click(dom, 'button[data-action="equals"]');
+  assert.equal(displayText(dom), '8');
+
+  click(dom, 'button[data-action="negate"]');
+  assert.equal(displayText(dom), '-8');
+  // Non-editable: the next digit replaces the negated result wholesale
+  // rather than extending it (would be "-82" if it were still editable).
+  clickDigits(dom, '2');
+  assert.equal(displayText(dom), '2');
+});
+
 test('zero in any typed form stays 0 under negate', async (t) => {
   const dom = await loadCalculator(t);
 
