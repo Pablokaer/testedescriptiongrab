@@ -147,9 +147,34 @@ function backspace() {
   }
 
   const next = calculatorState.current.slice(0, -1);
-  calculatorState.current = next === '' || next === '-' ? '0' : next;
+  calculatorState.current = next === '' || next === '-' || next === '-0' ? '0' : next;
   if (calculatorState.current === '0') {
     calculatorState.overwrite = true;
+  }
+  updateDisplay();
+}
+
+function negate() {
+  if (calculatorState.error) {
+    return;
+  }
+
+  // Zero (in any typed form, e.g. "0", "0.", "0.00") must stay zero rather
+  // than turn into a "-0" that would be confusing on the display.
+  if (parseFloat(calculatorState.current) === 0) {
+    return;
+  }
+
+  calculatorState.current = calculatorState.current.startsWith('-')
+    ? calculatorState.current.slice(1)
+    : `-${calculatorState.current}`;
+
+  // Only when an operator is pending does `current` still hold a copy of the
+  // accumulator with `overwrite` true (see chooseOperator); clearing the flag
+  // there makes the negated value the next operand. After "=" the display
+  // holds a computed result, which must stay non-editable.
+  if (calculatorState.operator !== null) {
+    calculatorState.overwrite = false;
   }
   updateDisplay();
 }
@@ -251,6 +276,9 @@ function handleCalculatorAction(target) {
       break;
     case 'backspace':
       backspace();
+      break;
+    case 'negate':
+      negate();
       break;
     default:
       break;
