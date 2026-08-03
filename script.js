@@ -53,6 +53,12 @@ function formatNumber(num) {
   if (!Number.isFinite(num)) {
     return 'Error';
   }
+  // Doubles represent integers exactly up to MAX_SAFE_INTEGER (16 digits), so
+  // those results need no float-noise cleanup: return them verbatim rather than
+  // let toPrecision(15) below round away their real 16th digit.
+  if (Number.isInteger(num) && Math.abs(num) <= Number.MAX_SAFE_INTEGER) {
+    return num.toString();
+  }
   // Normalise to 15 significant digits to remove float noise (e.g.
   // 0.1 + 0.2) without collapsing very small results to 0 or overflowing
   // very large ones to Infinity, as a fixed-decimal rounding would.
