@@ -106,6 +106,17 @@ function resetCalculator() {
 // manual typing; computed results are never truncated.
 const MAX_OPERAND_LENGTH = 16;
 
+// Count only significant digit characters, so a separator like the decimal
+// point (and the leading '-' the sign-toggle button can produce) never
+// eats into the digit budget above -- an integer and a decimal operand then
+// accept the same number of significant digits. The placeholder "0" that
+// inputDecimal() seeds before a leading '.' (e.g. "0.") is not significant
+// either -- the integer path already treats it the same way, replacing
+// rather than appending to a lone "0" -- so it is stripped before counting.
+function countDigits(str) {
+  return (str.replace(/^-?0(?=\.)/, '').match(/\d/g) || []).length;
+}
+
 function inputDigit(digit) {
   if (calculatorState.error) {
     calculatorState.error = false;
@@ -120,7 +131,7 @@ function inputDigit(digit) {
     calculatorState.overwrite = false;
   } else if (calculatorState.current === '0') {
     calculatorState.current = digit;
-  } else if (calculatorState.current.length < MAX_OPERAND_LENGTH) {
+  } else if (countDigits(calculatorState.current) < MAX_OPERAND_LENGTH) {
     calculatorState.current += digit;
   } else {
     return;
@@ -144,7 +155,7 @@ function inputDecimal() {
     return;
   }
 
-  if (calculatorState.current.includes('.') || calculatorState.current.length >= MAX_OPERAND_LENGTH) {
+  if (calculatorState.current.includes('.') || countDigits(calculatorState.current) >= MAX_OPERAND_LENGTH) {
     return;
   }
 
