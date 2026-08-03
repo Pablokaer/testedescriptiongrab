@@ -227,11 +227,12 @@ h1 {
   background: var(--operator-active);
 }
 
-/* `grid-row: 4 / span 2` and `.btn-zero`'s column span below are tied to
-   the current 5-row, 4-column button layout in index.html (rows: C/⌫/÷/×,
-   7/8/9/−, 4/5/6/+, 1/2/3/=, 0/.). If the button grid is reordered or grows
-   a row, these positions must be revisited or the layout will silently
-   break. */
+/* `grid-row: 4 / span 2` below is tied to the current 5-row, 4-column
+   button layout in index.html (rows: C/⌫/÷/×, 7/8/9/−, 4/5/6/+, 1/2/3/=,
+   ±/0/.). It relies on `=` being the only explicitly placed cell in the
+   last two rows, with the remaining buttons auto-flowing into the other
+   3 columns. If the button grid is reordered or grows a row, this
+   position must be revisited or the layout will silently break. */
 .btn-equals {
   background: var(--accent);
   color: var(--accent-fg);
@@ -245,10 +246,6 @@ h1 {
 
 .btn-equals:active {
   background: var(--accent-active);
-}
-
-.btn-zero {
-  grid-column: 1 / span 2;
 }
 
 @media (prefers-reduced-motion: reduce) {
