@@ -108,6 +108,16 @@ function resetCalculator() {
 // so users can't type well past double precision (the display can still
 // scroll horizontally to reveal the digits being typed). This only limits
 // manual typing; computed results are never truncated.
+//
+// The cap is a budget of significant digits (see countDigits() below), not of
+// raw `current.length` characters: the sign and the decimal point are
+// separators, not digits, and never consume a slot. A negative operand is
+// therefore entitled to exactly the same 16 digits as a positive one, and a
+// 17-character display like "-1234567890123456" is correct under this rule,
+// not a bug -- do not "fix" it back to counting characters. One direct
+// consequence: prepending '-' can never change how many digits `current`
+// holds, so negate() below cannot push an operand over the cap and needs no
+// length check of its own.
 const MAX_OPERAND_LENGTH = 16;
 
 // Count only significant digit characters, so a separator like the decimal
@@ -224,6 +234,9 @@ function negate() {
     return;
   }
 
+  // Prepending/stripping '-' never changes the digit count, only the sign,
+  // so this toggle cannot breach MAX_OPERAND_LENGTH (see the comment above
+  // that constant) and needs no length check of its own.
   calculatorState.current = calculatorState.current.startsWith('-')
     ? calculatorState.current.slice(1)
     : `-${calculatorState.current}`;
