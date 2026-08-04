@@ -54,7 +54,11 @@ counterValue.addEventListener('transitionend', () => {
 // window is a plain operator swap, same as pressing two operators back to
 // back with no "+/-" involved (5 + * leaves the accumulator at 5): it
 // discards the pending sign rather than folding it into the accumulator --
-// see the `else` branch of chooseOperator() below.
+// see the `else` branch of chooseOperator() below. The "+/-" flip on the
+// display is undone right along with it (AID-27), not just the arithmetic,
+// so a following "=" with no digit typed takes its second operand from what
+// is shown, whichever direction that flip went: 5 + +/- - = is 5 - 5 = 0
+// (not 5 - -5), and 1 - 5 - +/- * = is -4 * -4 = 16 (not -4 * 4).
 
 const display = document.getElementById('calculator-display');
 const calculatorGrid = document.querySelector('.calculator-grid');
@@ -486,8 +490,32 @@ function chooseOperator(operator) {
     // `current` may be carrying a display-only sign from "+/-" (see
     // `pendingNegative`): it belongs to the operand the user was about to
     // type, not to the accumulator, so an operator swap must not fold it in
-    // -- undo it here the same way the sign was applied, by re-negating.
-    calculatorState.previous = calculatorState.pendingNegative ? -currentValue : currentValue;
+    // -- undo it here the same way the sign was applied, by re-negating. This
+    // branch also runs for the plain "operand just typed, press an operator"
+    // case (no "+/-" involved), where `current` is the user's literal typed
+    // string, so it must not be touched there: routing it through
+    // formatNumber() would round it to 15 significant digits even though
+    // MAX_OPERAND_LENGTH allows 16, corrupting both the display and the
+    // value a later "=" reads back (AID-27). So only re-render `current` when
+    // a sign was actually pending, and undo the sign as a toggle rather than
+    // reformatting the whole string: negate() either added a leading "-" (a
+    // positive accumulator) or removed one (a negative accumulator, see
+    // script.js's negate()), so the undo here has to mirror whichever of
+    // those happened -- strip a "-" that is there, or restore one that isn't.
+    // The restore is guarded by `currentValue !== 0` since AID-25 allows
+    // `pendingNegative` to be true while `current` is a bare "0"/"-0": that
+    // case must stay "0", never grow a "-", the same "never show -0" rule
+    // negate() itself follows.
+    if (calculatorState.pendingNegative) {
+      calculatorState.previous = -currentValue;
+      if (calculatorState.current.startsWith('-')) {
+        calculatorState.current = calculatorState.current.slice(1);
+      } else if (currentValue !== 0) {
+        calculatorState.current = `-${calculatorState.current}`;
+      }
+    } else {
+      calculatorState.previous = currentValue;
+    }
   }
 
   // A pending sign only ever applies to the operand that was in hand for
