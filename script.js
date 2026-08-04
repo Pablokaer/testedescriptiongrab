@@ -159,21 +159,58 @@ function resetCalculator() {
 // separators, not digits, and never consume a slot. A negative operand is
 // therefore entitled to exactly the same 16 digits as a positive one, and a
 // 17-character display like "-1234567890123456" is correct under this rule,
-// not a bug -- do not "fix" it back to counting characters. One direct
+// not a bug -- do not "fix" it back to counting characters (a separate
+// raw-length safety ceiling does exist -- see MAX_OPERAND_CHARS below -- but
+// it is a distinct concern from this significant-digit budget). One direct
 // consequence: prepending '-' can never change how many digits `current`
 // holds, so negate() below cannot push an operand over the cap and needs no
 // length check of its own.
 const MAX_OPERAND_LENGTH = 16;
 
-// Count only significant digit characters, so a separator like the decimal
-// point (and the leading '-' the sign-toggle button can produce) never
-// eats into the digit budget above -- an integer and a decimal operand then
-// accept the same number of significant digits. The placeholder "0" that
-// inputDecimal() seeds before a leading '.' (e.g. "0.") is not significant
-// either -- the integer path already treats it the same way, replacing
-// rather than appending to a lone "0" -- so it is stripped before counting.
+// AID-22 decision: a whole leading run of zeros -- the placeholder integer
+// "0", the decimal point, and any zeros immediately after it -- costs no
+// double-precision significance (double precision is mantissa-relative), so
+// none of it may consume the MAX_OPERAND_LENGTH budget above. Left
+// unchecked, that would let the raw typed string ("0.000...000<digits>")
+// grow without bound, so this is a separate ceiling on the raw string length
+// itself, not on significant digits. Like MAX_OPERAND_LENGTH, the sign is a
+// separator and is excluded from the count (see isOperandFull() below) --
+// negating an operand must never be what pushes it over this cap either.
+// 64 is a deliberate safety bound, not a product rule: it sits far clear of
+// anything typed deliberately, e.g. "0." + 46 leading zeros + a full
+// 16-significant-digit operand is exactly 64 characters.
+const MAX_OPERAND_CHARS = 64;
+
+// Count only significant digit characters against MAX_OPERAND_LENGTH, so a
+// separator like the decimal point (and the leading '-' the sign-toggle
+// button can produce) never eats into that budget -- an integer and a
+// decimal operand then accept the same number of significant digits. Per the
+// AID-22 decision, this also strips the *entire* leading run of zeros before
+// counting, not just the single placeholder "0" that inputDecimal() seeds
+// before a leading '.' (e.g. "0." or "0.000"): leading zeros carry no
+// precision, so "0.0000000000000000000001" counts as 1 significant digit,
+// not 21. The '.' in the pattern is optional, so this also now counts a bare
+// "0" (no decimal point at all) as 0 significant digits rather than 1 -- a
+// real behaviour change from before, but a harmless one: inputDigit() never
+// asks (its `current === '0'` branch short-circuits first), and inputDecimal()
+// does ask, via isOperandFull(), but 0 and 1 are both far below
+// MAX_OPERAND_LENGTH, so the answer cannot change what it does.
 function countDigits(str) {
-  return (str.replace(/^-?0(?=\.)/, '').match(/\d/g) || []).length;
+  return (str.replace(/^-?0*\.?0*/, '').match(/\d/g) || []).length;
+}
+
+// AID-22 decision: an operand is "full" -- and further digits/decimal points
+// must be silently refused, exactly as before -- when either cap above is
+// reached: the significant-digit budget (MAX_OPERAND_LENGTH), or, for the
+// leading-zero runs that budget deliberately no longer charges for, the raw
+// character ceiling (MAX_OPERAND_CHARS). Shared by inputDigit() and
+// inputDecimal() so the two call sites can never drift apart on what "full"
+// means. The sign is excluded from the character count for the same reason
+// it is excluded from MAX_OPERAND_LENGTH above: it is a separator, not part
+// of the value, and must never consume a slot in either cap.
+function isOperandFull(str) {
+  const unsigned = str.startsWith('-') ? str.slice(1) : str;
+  return countDigits(str) >= MAX_OPERAND_LENGTH || unsigned.length >= MAX_OPERAND_CHARS;
 }
 
 // Carries a pending sign (see `pendingNegative` above) onto the first
@@ -206,7 +243,7 @@ function inputDigit(digit) {
     calculatorState.overwrite = false;
   } else if (calculatorState.current === '0') {
     calculatorState.current = consumeSign(digit);
-  } else if (countDigits(calculatorState.current) < MAX_OPERAND_LENGTH) {
+  } else if (!isOperandFull(calculatorState.current)) {
     calculatorState.current += digit;
   } else {
     return;
@@ -235,7 +272,7 @@ function inputDecimal() {
     return;
   }
 
-  if (calculatorState.current.includes('.') || countDigits(calculatorState.current) >= MAX_OPERAND_LENGTH) {
+  if (calculatorState.current.includes('.') || isOperandFull(calculatorState.current)) {
     return;
   }
 
@@ -331,8 +368,10 @@ function negate() {
   }
 
   // Prepending/stripping '-' never changes the digit count, only the sign,
-  // so this toggle cannot breach MAX_OPERAND_LENGTH (see the comment above
-  // that constant) and needs no length check of its own.
+  // so this toggle cannot breach either cap on operand size -- not
+  // MAX_OPERAND_LENGTH (see the comment above that constant), and not
+  // MAX_OPERAND_CHARS either, since that cap also excludes the sign (see
+  // isOperandFull()) -- and needs no length check of its own.
   calculatorState.current = calculatorState.current.startsWith('-')
     ? calculatorState.current.slice(1)
     : `-${calculatorState.current}`;
