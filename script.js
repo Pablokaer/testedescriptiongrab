@@ -120,6 +120,20 @@ function toPlainDecimalString(num) {
   return `${sign}0.${'0'.repeat(exponent - intDigits.length)}${intDigits}${fractionDigits}`;
 }
 
+// AID-29 decision: the single source of truth for "how many significant
+// digits does this calculator preserve", shared by roundToDisplayPrecision()
+// below (what a computed result is normalised to) and MAX_OPERAND_LENGTH
+// further down (what a typed operand is capped at). The two must always be
+// equal: if the typed cap ever exceeded this precision again, an operand
+// typed right up to that cap would hold more significant digits than any
+// later computation preserves, so folding it into an accumulator (e.g. "+ 0
+// =") would silently drop its last digit on display -- exactly bug AID-29.
+// 15 is also the largest precision that always round-trips through
+// IEEE-754 doubles without reintroducing float noise (toPrecision(16) turns
+// 0.1 + 0.7 into "0.7999999999999999" and 4.35 * 100 into
+// "434.9999999999999"), so it is not an arbitrary choice either.
+const SIGNIFICANT_DIGITS = 15;
+
 // Rounds a finite number to the same precision formatNumber() displays it at,
 // returning a number rather than a string. Pulled out of formatNumber() so
 // chooseOperator() can round a chained accumulator to this exact value too
@@ -130,18 +144,18 @@ function toPlainDecimalString(num) {
 function roundToDisplayPrecision(num) {
   // Any value that is already an exact integer double has no fractional part
   // left to carry float noise, no matter its magnitude, so it needs no
-  // rounding at all: return it verbatim rather than let toPrecision(15)
-  // below round away real digits beyond its 15 significant digits. (This
-  // used to be gated at MAX_SAFE_INTEGER, which clipped the fast path one
-  // ULP short of every exact integer double actually representable above
+  // rounding at all: return it verbatim rather than let toPrecision below
+  // round away real digits beyond its SIGNIFICANT_DIGITS significant digits.
+  // (This used to be gated at MAX_SAFE_INTEGER, which clipped the fast path
+  // one ULP short of every exact integer double actually representable above
   // it.)
   if (Number.isInteger(num)) {
     return num;
   }
-  // Normalise to 15 significant digits to remove float noise (e.g.
+  // Normalise to SIGNIFICANT_DIGITS digits to remove float noise (e.g.
   // 0.1 + 0.2) without collapsing very small results to 0 or overflowing
   // very large ones to Infinity, as a fixed-decimal rounding would.
-  const rounded = Number(num.toPrecision(15));
+  const rounded = Number(num.toPrecision(SIGNIFICANT_DIGITS));
   // Rounding up can tip the handful of doubles just below MAX_VALUE over the
   // edge; keep the original finite value rather than round to Infinity.
   return Number.isFinite(rounded) ? rounded : num;
@@ -178,20 +192,27 @@ function resetCalculator() {
 // Cap how long a typed operand can grow so it stays reasonably readable and
 // so users can't type well past double precision (the display can still
 // scroll horizontally to reveal the digits being typed). This only limits
-// manual typing; computed results are never truncated.
+// manual typing.
+//
+// AID-29: derived from SIGNIFICANT_DIGITS, not a separate literal, so this
+// cap can never again drift ahead of the precision roundToDisplayPrecision()
+// normalises computed results to -- a typed operand right at this cap is
+// therefore guaranteed to survive any later computation (e.g. "+ 0 =")
+// digit-for-digit, since it can never hold more precision than a result is
+// allowed to keep.
 //
 // The cap is a budget of significant digits (see countDigits() below), not of
 // raw `current.length` characters: the sign and the decimal point are
 // separators, not digits, and never consume a slot. A negative operand is
-// therefore entitled to exactly the same 16 digits as a positive one, and a
-// 17-character display like "-1234567890123456" is correct under this rule,
+// therefore entitled to exactly the same digits as a positive one, and a
+// 16-character display like "-123456789012345" is correct under this rule,
 // not a bug -- do not "fix" it back to counting characters (a separate
 // raw-length safety ceiling does exist -- see MAX_OPERAND_CHARS below -- but
 // it is a distinct concern from this significant-digit budget). One direct
 // consequence: prepending '-' can never change how many digits `current`
 // holds, so negate() below cannot push an operand over the cap and needs no
 // length check of its own.
-const MAX_OPERAND_LENGTH = 16;
+const MAX_OPERAND_LENGTH = SIGNIFICANT_DIGITS;
 
 // AID-22 decision: a whole leading run of zeros -- the placeholder integer
 // "0", the decimal point, and any zeros immediately after it -- costs no
@@ -203,8 +224,8 @@ const MAX_OPERAND_LENGTH = 16;
 // separator and is excluded from the count (see isOperandFull() below) --
 // negating an operand must never be what pushes it over this cap either.
 // 64 is a deliberate safety bound, not a product rule: it sits far clear of
-// anything typed deliberately, e.g. "0." + 46 leading zeros + a full
-// 16-significant-digit operand is exactly 64 characters.
+// anything typed deliberately, e.g. "0." + 47 leading zeros + a full
+// MAX_OPERAND_LENGTH-significant-digit (15) operand is exactly 64 characters.
 const MAX_OPERAND_CHARS = 64;
 
 // Count only significant digit characters against MAX_OPERAND_LENGTH, so a
@@ -510,10 +531,14 @@ function chooseOperator(operator) {
     // -- undo it here the same way the sign was applied, by re-negating. This
     // branch also runs for the plain "operand just typed, press an operator"
     // case (no "+/-" involved), where `current` is the user's literal typed
-    // string, so it must not be touched there: routing it through
-    // formatNumber() would round it to 15 significant digits even though
-    // MAX_OPERAND_LENGTH allows 16, corrupting both the display and the
-    // value a later "=" reads back (AID-27). So only re-render `current` when
+    // string, so it must not be touched there: even now that
+    // MAX_OPERAND_LENGTH and SIGNIFICANT_DIGITS agree (AID-29), routing
+    // `current` through formatNumber() would still parse it to a number and
+    // re-render that number's canonical form, silently dropping any trailing
+    // zeros the user actually typed (e.g. "1.500" -> "1.5") or collapsing a
+    // bare trailing "." (e.g. "0." -> "0"), even though the underlying value
+    // is unchanged -- corrupting the display with a reformat the user never
+    // asked for (AID-27). So only re-render `current` when
     // a sign was actually pending, and undo the sign as a toggle rather than
     // reformatting the whole string: negate() either added a leading "-" (a
     // positive accumulator) or removed one (a negative accumulator, see
