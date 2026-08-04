@@ -50,13 +50,16 @@ function displayText(dom) {
   return dom.window.document.getElementById('calculator-display').textContent;
 }
 
-// Counts significant digits the way script.js's countDigits() does -- the
-// leading "0" placeholder of a bare ".x" operand is not significant, and
-// neither a sign nor a decimal point ever inflates the count. Used to assert
-// the actual MAX_OPERAND_LENGTH invariant (digits), not the display string's
-// raw length.
+// Mirrors script.js's countDigits() (AID-22): the whole leading run of
+// zeros -- the placeholder integer "0", the decimal point, and any zeros
+// immediately after it -- is stripped before counting, since none of it
+// carries double-precision significance; neither a sign nor a decimal point
+// ever inflates the count either. The decimal point is optional in the match,
+// so a bare "0" counts as 0 significant digits too. Used to assert the actual
+// MAX_OPERAND_LENGTH invariant (significant digits), not the display
+// string's raw length.
 function digitCount(str) {
-  return (str.replace(/^-?0(?=\.)/, '').match(/\d/g) || []).length;
+  return (str.replace(/^-?0*\.?0*/, '').match(/\d/g) || []).length;
 }
 
 test('4503599627370496 x 2 = displays 9007199254740992 (AID-18 repro 1)', async (t) => {
@@ -487,4 +490,98 @@ test('zero in any typed form stays 0 under negate', async (t) => {
   clickDigits(dom, '00');
   click(dom, 'button[data-action="negate"]');
   assert.equal(displayText(dom), '0.00');
+});
+
+// AID-22: leading zeros after the decimal point are not significant digits
+// and must not consume the MAX_OPERAND_LENGTH budget -- see countDigits() and
+// isOperandFull() in script.js for the decided rationale.
+
+test('C . then twenty 0s then 1 displays 0.0000000000000000000001, keeping the significant digit (AID-22 repro)', async (t) => {
+  const dom = await loadCalculator(t);
+  click(dom, 'button[data-action="clear"]');
+  click(dom, 'button[data-action="decimal"]');
+  clickDigits(dom, '0'.repeat(20));
+  clickDigits(dom, '1');
+  const shown = displayText(dom);
+  assert.equal(shown, '0.' + '0'.repeat(20) + '1');
+  assert.equal(digitCount(shown), 1);
+});
+
+test('after the AID-22 repro, a further 15 digits are accepted for a full 16-digit budget, and the 17th is refused', async (t) => {
+  const dom = await loadCalculator(t);
+  click(dom, 'button[data-action="clear"]');
+  click(dom, 'button[data-action="decimal"]');
+  clickDigits(dom, '0'.repeat(20));
+  clickDigits(dom, '1');
+  clickDigits(dom, '234567890123456');
+  let shown = displayText(dom);
+  assert.equal(shown, '0.' + '0'.repeat(20) + '1234567890123456');
+  assert.equal(digitCount(shown), 16);
+
+  clickDigits(dom, '7');
+  shown = displayText(dom);
+  assert.equal(shown, '0.' + '0'.repeat(20) + '1234567890123456');
+  assert.equal(digitCount(shown), 16);
+});
+
+test('1 . then 23456789012345678 stops at 1.234567890123456 (AID-22 criterion 2, ordinary decimals keep today\'s cap)', async (t) => {
+  const dom = await loadCalculator(t);
+  click(dom, 'button[data-action="clear"]');
+  clickDigits(dom, '1');
+  click(dom, 'button[data-action="decimal"]');
+  clickDigits(dom, '23456789012345678');
+  assert.equal(displayText(dom), '1.234567890123456');
+});
+
+test('16 digits then a 17th is refused for a plain integer operand (AID-22 criterion 3, integer cap unchanged)', async (t) => {
+  const dom = await loadCalculator(t);
+  click(dom, 'button[data-action="clear"]');
+  clickDigits(dom, '1234567890123456');
+  clickDigits(dom, '7');
+  assert.equal(displayText(dom), '1234567890123456');
+});
+
+test('MAX_OPERAND_CHARS caps a long leading-zero run that costs no significant digits (AID-22)', async (t) => {
+  const dom = await loadCalculator(t);
+  click(dom, 'button[data-action="clear"]');
+  click(dom, 'button[data-action="decimal"]');
+  // "0." already occupies 2 of the 64 non-sign characters the raw string is
+  // capped at (see MAX_OPERAND_CHARS in script.js). Click well past that so
+  // the cap, not the click count, decides where the string stops.
+  clickDigits(dom, '0'.repeat(80));
+  const shown = displayText(dom);
+  // Read the real constant out of script.js's top-level scope rather than
+  // duplicating the literal here: script.js declares it with top-level
+  // `const`, which never becomes a `window` property, but `dom.window.eval`
+  // runs in that same global scope and can still see it.
+  const maxOperandChars = dom.window.eval('MAX_OPERAND_CHARS');
+  const expected = '0.' + '0'.repeat(maxOperandChars - '0.'.length);
+  assert.equal(shown, expected);
+  assert.equal(shown.length, maxOperandChars);
+  assert.equal(digitCount(shown), 0);
+});
+
+test('the sign does not consume MAX_OPERAND_CHARS either (AID-22, cf. AID-19)', async (t) => {
+  const dom = await loadCalculator(t);
+  click(dom, 'button[data-action="clear"]');
+  click(dom, 'button[data-action="decimal"]');
+  clickDigits(dom, '0'.repeat(50));
+  clickDigits(dom, '1');
+  click(dom, 'button[data-action="negate"]');
+  const tail = '2345678901234'; // more than the char cap can still take
+  clickDigits(dom, tail);
+  const shown = displayText(dom);
+  // Read the real constant, as the test above does, instead of duplicating 64.
+  const maxOperandChars = dom.window.eval('MAX_OPERAND_CHARS');
+  // The operand held "0." + 50 zeros + "1" (53 non-sign characters) when the
+  // sign went on, so only the first `maxOperandChars - 53` characters of the
+  // tail can still land -- 13 are typed, so the cap, not the click count, is
+  // what stops it. At most 14 significant digits are ever attempted (12 end up
+  // in the operand), well under MAX_OPERAND_LENGTH, so what this pins is the
+  // character cap specifically.
+  const kept = '0.' + '0'.repeat(50) + '1';
+  assert.equal(shown, `-${kept}${tail.slice(0, maxOperandChars - kept.length)}`);
+  // Sign excluded: the same budget of characters a positive operand gets.
+  assert.equal(shown.slice(1).length, maxOperandChars);
+  assert.equal(shown.startsWith('-'), true);
 });
