@@ -120,32 +120,40 @@ function toPlainDecimalString(num) {
   return `${sign}0.${'0'.repeat(exponent - intDigits.length)}${intDigits}${fractionDigits}`;
 }
 
-function formatNumber(num) {
-  if (!Number.isFinite(num)) {
-    return 'Error';
-  }
+// Rounds a finite number to the same precision formatNumber() displays it at,
+// returning a number rather than a string. Pulled out of formatNumber() so
+// chooseOperator() can round a chained accumulator to this exact value too
+// (AID-28), rather than only cleaning up the string shown on screen while the
+// accumulator itself keeps computing against the raw, un-rounded float.
+// Assumes `num` is finite -- callers that might not be (formatNumber()) must
+// check Number.isFinite() first.
+function roundToDisplayPrecision(num) {
   // Any value that is already an exact integer double has no fractional part
   // left to carry float noise, no matter its magnitude, so it needs no
-  // cleanup at all: hand it to toPlainDecimalString() verbatim rather than
-  // let toPrecision(15) below round away real digits beyond its 15
-  // significant digits. (This used to be gated at MAX_SAFE_INTEGER, which
-  // clipped the fast path one ULP short of every exact integer double
-  // actually representable above it.) toPlainDecimalString() renders -0 as
-  // "0", same as toString() (see its own comment above), so no separate
-  // normalisation is needed here.
+  // rounding at all: return it verbatim rather than let toPrecision(15)
+  // below round away real digits beyond its 15 significant digits. (This
+  // used to be gated at MAX_SAFE_INTEGER, which clipped the fast path one
+  // ULP short of every exact integer double actually representable above
+  // it.)
   if (Number.isInteger(num)) {
-    return toPlainDecimalString(num);
+    return num;
   }
   // Normalise to 15 significant digits to remove float noise (e.g.
   // 0.1 + 0.2) without collapsing very small results to 0 or overflowing
   // very large ones to Infinity, as a fixed-decimal rounding would.
   const rounded = Number(num.toPrecision(15));
-  if (!Number.isFinite(rounded)) {
-    // Rounding up can tip the handful of doubles just below MAX_VALUE over
-    // the edge; keep the original finite value rather than print Infinity.
-    return toPlainDecimalString(num);
+  // Rounding up can tip the handful of doubles just below MAX_VALUE over the
+  // edge; keep the original finite value rather than round to Infinity.
+  return Number.isFinite(rounded) ? rounded : num;
+}
+
+function formatNumber(num) {
+  if (!Number.isFinite(num)) {
+    return 'Error';
   }
-  return toPlainDecimalString(rounded);
+  // toPlainDecimalString() renders -0 as "0", same as toString() (see its
+  // own comment above), so no separate normalisation is needed here.
+  return toPlainDecimalString(roundToDisplayPrecision(num));
 }
 
 function updateDisplay() {
@@ -484,8 +492,17 @@ function chooseOperator(operator) {
       updateDisplay();
       return;
     }
-    calculatorState.previous = result;
-    calculatorState.current = formatNumber(result);
+    // Round the accumulator itself, not just the string about to be
+    // displayed, to the same precision formatNumber() renders it at
+    // (AID-28): otherwise the next fold in this same chain keeps computing
+    // against the raw, un-rounded float, silently reintroducing noise the
+    // display had already hidden (e.g. 0.1 + 0.2 - 0.3 with no intermediate
+    // "=" would otherwise land on 5.55e-17 instead of 0). Exact integers
+    // above MAX_SAFE_INTEGER (AID-12/AID-18) pass through
+    // roundToDisplayPrecision() unchanged, same as they do in formatNumber(),
+    // so this never rounds away real digits from those.
+    calculatorState.previous = roundToDisplayPrecision(result);
+    calculatorState.current = formatNumber(calculatorState.previous);
   } else {
     // `current` may be carrying a display-only sign from "+/-" (see
     // `pendingNegative`): it belongs to the operand the user was about to

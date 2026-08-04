@@ -908,3 +908,84 @@ test('0 + +/- 0 Backspace 5 = displays 5 (AID-25, backspace parity on a zero acc
   click(dom, 'button[data-action="equals"]');
   assert.equal(displayText(dom), '5');
 });
+
+test('0.1 + 0.2 - 0.3 = displays 0 (AID-28, chained accumulator no longer keeps float noise)', async (t) => {
+  const dom = await loadCalculator(t);
+  click(dom, 'button[data-action="clear"]');
+  clickDigits(dom, '0');
+  click(dom, 'button[data-action="decimal"]');
+  clickDigits(dom, '1');
+  click(dom, 'button[data-action="operator"][data-operator="+"]');
+  clickDigits(dom, '0');
+  click(dom, 'button[data-action="decimal"]');
+  clickDigits(dom, '2');
+  // Folding the pending "+" here (no intermediate "=") is the repro: it must
+  // round the accumulator the same way "=" would, not just the string shown
+  // on screen, or the "- 0.3" below is left subtracting from raw float noise
+  // instead of a clean 0.3.
+  click(dom, 'button[data-action="operator"][data-operator="-"]');
+  clickDigits(dom, '0');
+  click(dom, 'button[data-action="decimal"]');
+  clickDigits(dom, '3');
+  click(dom, 'button[data-action="equals"]');
+  assert.equal(displayText(dom), '0');
+});
+
+test('0.1 + 0.2 + 0.3 = displays 0.6 (AID-28, longer chain stays consistent with the =-per-step equivalent)', async (t) => {
+  const dom = await loadCalculator(t);
+  click(dom, 'button[data-action="clear"]');
+  clickDigits(dom, '0');
+  click(dom, 'button[data-action="decimal"]');
+  clickDigits(dom, '1');
+  click(dom, 'button[data-action="operator"][data-operator="+"]');
+  clickDigits(dom, '0');
+  click(dom, 'button[data-action="decimal"]');
+  clickDigits(dom, '2');
+  click(dom, 'button[data-action="operator"][data-operator="+"]');
+  clickDigits(dom, '0');
+  click(dom, 'button[data-action="decimal"]');
+  clickDigits(dom, '3');
+  click(dom, 'button[data-action="equals"]');
+  assert.equal(displayText(dom), '0.6');
+});
+
+test('0.1 + 0.2 - 0.3 * 5 = displays 0 (AID-28, a third fold cannot amplify leftover noise)', async (t) => {
+  const dom = await loadCalculator(t);
+  click(dom, 'button[data-action="clear"]');
+  clickDigits(dom, '0');
+  click(dom, 'button[data-action="decimal"]');
+  clickDigits(dom, '1');
+  click(dom, 'button[data-action="operator"][data-operator="+"]');
+  clickDigits(dom, '0');
+  click(dom, 'button[data-action="decimal"]');
+  clickDigits(dom, '2');
+  click(dom, 'button[data-action="operator"][data-operator="-"]');
+  clickDigits(dom, '0');
+  click(dom, 'button[data-action="decimal"]');
+  clickDigits(dom, '3');
+  // Multiplying rather than adding at the third fold is deliberate: a "+ 0.4"
+  // here would absorb leftover noise back below the 15-significant-digit
+  // display threshold and pass even on the unrounded accumulator, whereas
+  // "* 5" scales it up and stays visible (0.000000000000000277555756156289).
+  click(dom, 'button[data-action="operator"][data-operator="*"]');
+  clickDigits(dom, '5');
+  click(dom, 'button[data-action="equals"]');
+  assert.equal(displayText(dom), '0');
+});
+
+test('1 / 3 * 3 = displays 0.999999999999999 (AID-28, the chained accumulator matches the =-per-step result rather than re-widening to full precision)', async (t) => {
+  const dom = await loadCalculator(t);
+  click(dom, 'button[data-action="clear"]');
+  clickDigits(dom, '1');
+  click(dom, 'button[data-action="operator"][data-operator="/"]');
+  clickDigits(dom, '3');
+  click(dom, 'button[data-action="operator"][data-operator="*"]');
+  clickDigits(dom, '3');
+  click(dom, 'button[data-action="equals"]');
+  // Pinned on purpose. Rounding the accumulator (AID-28) is what makes a
+  // chain agree with the same steps typed with an intermediate "=", and here
+  // that costs the prettier "1" this chain used to show. Un-rounding it to win
+  // the "1" back would silently reintroduce AID-28, so this asserts the
+  // trade-off instead of leaving it to be "fixed" later.
+  assert.equal(displayText(dom), '0.999999999999999');
+});
