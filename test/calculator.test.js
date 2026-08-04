@@ -62,30 +62,65 @@ function digitCount(str) {
   return (str.replace(/^-?0*\.?0*/, '').match(/\d/g) || []).length;
 }
 
-test('4503599627370496 x 2 = displays 9007199254740992 (AID-18 repro 1)', async (t) => {
+// These three AID-18 boundary values (2^52, 2^53+3 rounded, and 2^53-1) are
+// all 16 significant digits, one more than AID-29 now allows a typed operand
+// to hold, so they can no longer be typed directly. 281474976710656 (2^48,
+// 15 digits) is still typeable, so each test builds up to the real boundary
+// value it needs as a *computed* accumulator first -- which is fine, since
+// only typed input is capped by MAX_OPERAND_LENGTH, never a computed result.
+test('2^48 x 16 x 2 = displays 9007199254740992 (AID-18 repro 1, built from a 15-digit base since AID-29)', async (t) => {
   const dom = await loadCalculator(t);
   click(dom, 'button[data-action="clear"]');
-  clickDigits(dom, '4503599627370496');
+  clickDigits(dom, '281474976710656');
+  click(dom, 'button[data-action="operator"][data-operator="*"]');
+  clickDigits(dom, '16');
+  click(dom, 'button[data-action="equals"]');
+  assert.equal(displayText(dom), '4503599627370496');
+
   click(dom, 'button[data-action="operator"][data-operator="*"]');
   clickDigits(dom, '2');
   click(dom, 'button[data-action="equals"]');
   assert.equal(displayText(dom), '9007199254740992');
 });
 
-test('9007199254740995 + 0 = displays 9007199254740996 (AID-18 repro 2)', async (t) => {
+test('2^48 x 32 + 3 + 0 = displays 9007199254740996 (AID-18 repro 2, built from a 15-digit base since AID-29)', async (t) => {
   const dom = await loadCalculator(t);
   click(dom, 'button[data-action="clear"]');
-  clickDigits(dom, '9007199254740995');
+  clickDigits(dom, '281474976710656');
+  click(dom, 'button[data-action="operator"][data-operator="*"]');
+  clickDigits(dom, '32');
+  click(dom, 'button[data-action="equals"]');
+  assert.equal(displayText(dom), '9007199254740992');
+
+  // 2^53 + 3 is not itself representable as a double (the gap between
+  // representable doubles is 2 at this magnitude), so this already rounds to
+  // the nearest one, 9007199254740996, exactly like typing the literal
+  // "9007199254740995" used to.
+  click(dom, 'button[data-action="operator"][data-operator="+"]');
+  clickDigits(dom, '3');
+  click(dom, 'button[data-action="equals"]');
+  assert.equal(displayText(dom), '9007199254740996');
+
   click(dom, 'button[data-action="operator"][data-operator="+"]');
   clickDigits(dom, '0');
   click(dom, 'button[data-action="equals"]');
   assert.equal(displayText(dom), '9007199254740996');
 });
 
-test('9007199254740991 round-trips unchanged (old MAX_SAFE_INTEGER boundary)', async (t) => {
+test('2^48 x 32 - 1 + 0 = displays 9007199254740991 unchanged (old MAX_SAFE_INTEGER boundary, built from a 15-digit base since AID-29)', async (t) => {
   const dom = await loadCalculator(t);
   click(dom, 'button[data-action="clear"]');
-  clickDigits(dom, '9007199254740991');
+  clickDigits(dom, '281474976710656');
+  click(dom, 'button[data-action="operator"][data-operator="*"]');
+  clickDigits(dom, '32');
+  click(dom, 'button[data-action="equals"]');
+  assert.equal(displayText(dom), '9007199254740992');
+
+  click(dom, 'button[data-action="operator"][data-operator="-"]');
+  clickDigits(dom, '1');
+  click(dom, 'button[data-action="equals"]');
+  assert.equal(displayText(dom), '9007199254740991');
+
   click(dom, 'button[data-action="operator"][data-operator="+"]');
   clickDigits(dom, '0');
   click(dom, 'button[data-action="equals"]');
@@ -157,65 +192,66 @@ test('12 x 12 = displays 144 (ordinary small-number sanity check)', async (t) =>
   assert.equal(displayText(dom), '144');
 });
 
-test('16 digits then negate displays -1234567890123456, still 16 digits (AID-19 repro)', async (t) => {
+test('15 digits then negate displays -123456789012345, still 15 digits (AID-19 repro, budget lowered to 15 by AID-29)', async (t) => {
   const dom = await loadCalculator(t);
   click(dom, 'button[data-action="clear"]');
-  clickDigits(dom, '1234567890123456');
+  clickDigits(dom, '123456789012345');
   click(dom, 'button[data-action="negate"]');
   const shown = displayText(dom);
-  assert.equal(shown, '-1234567890123456');
-  assert.equal(digitCount(shown), 16);
+  assert.equal(shown, '-123456789012345');
+  assert.equal(digitCount(shown), 15);
 });
 
-test('a 17th digit is still ignored after negating a 16-digit operand', async (t) => {
+test('a 16th digit is still ignored after negating a 15-digit operand', async (t) => {
   const dom = await loadCalculator(t);
   click(dom, 'button[data-action="clear"]');
-  clickDigits(dom, '1234567890123456');
+  clickDigits(dom, '123456789012345');
   click(dom, 'button[data-action="negate"]');
   clickDigits(dom, '7');
   const shown = displayText(dom);
-  assert.equal(shown, '-1234567890123456');
-  assert.equal(digitCount(shown), 16);
+  assert.equal(shown, '-123456789012345');
+  assert.equal(digitCount(shown), 15);
 });
 
-test('negating early then typing still reaches a full 16-digit budget (-1111111111111111)', async (t) => {
+test('negating early then typing still reaches a full 15-digit budget (-111111111111111)', async (t) => {
   const dom = await loadCalculator(t);
   click(dom, 'button[data-action="clear"]');
   clickDigits(dom, '1');
   click(dom, 'button[data-action="negate"]');
-  clickDigits(dom, '111111111111111');
+  clickDigits(dom, '11111111111111');
   const shown = displayText(dom);
-  assert.equal(shown, '-1111111111111111');
-  assert.equal(digitCount(shown), 16);
+  assert.equal(shown, '-111111111111111');
+  assert.equal(digitCount(shown), 15);
 });
 
 // The AID-16 (decimal point) and AID-19 (sign) cases meet here: neither the
 // '.' nor the '-' nor the leading "0" placeholder is charged against the
-// 16-digit budget, so this operand is at the cap with 19 characters shown.
-test('a negated 0.x operand gets the full 16-digit budget and no more', async (t) => {
+// 15-digit budget (see AID-29: MAX_OPERAND_LENGTH now derives from
+// SIGNIFICANT_DIGITS), so this operand is at the cap with 18 characters shown.
+test('a negated 0.x operand gets the full 15-digit budget and no more', async (t) => {
   const dom = await loadCalculator(t);
   click(dom, 'button[data-action="clear"]');
   clickDigits(dom, '0');
   click(dom, 'button[data-action="decimal"]');
-  clickDigits(dom, '1234567890123456');
+  clickDigits(dom, '123456789012345');
   click(dom, 'button[data-action="negate"]');
   let shown = displayText(dom);
-  assert.equal(shown, '-0.1234567890123456');
-  assert.equal(digitCount(shown), 16);
+  assert.equal(shown, '-0.123456789012345');
+  assert.equal(digitCount(shown), 15);
 
   clickDigits(dom, '7');
   shown = displayText(dom);
-  assert.equal(shown, '-0.1234567890123456');
-  assert.equal(digitCount(shown), 16);
+  assert.equal(shown, '-0.123456789012345');
+  assert.equal(digitCount(shown), 15);
 });
 
-test('negate twice returns the exact original 16-digit string', async (t) => {
+test('negate twice returns the exact original 15-digit string', async (t) => {
   const dom = await loadCalculator(t);
   click(dom, 'button[data-action="clear"]');
-  clickDigits(dom, '1234567890123456');
+  clickDigits(dom, '123456789012345');
   click(dom, 'button[data-action="negate"]');
   click(dom, 'button[data-action="negate"]');
-  assert.equal(displayText(dom), '1234567890123456');
+  assert.equal(displayText(dom), '123456789012345');
 });
 
 test('5 + +/- 2 = displays 3, not -47 (AID-20 repro A)', async (t) => {
@@ -416,25 +452,41 @@ test('5 + +/- - 3 = still displays 2 (AID-27 control, a digit typed after the sw
   assert.equal(displayText(dom), '2');
 });
 
-test('1.234567890123456 * still displays 1.234567890123456 (AID-27 regression, an operator press must not reformat a typed operand)', async (t) => {
+// Non-discriminating now that AID-29 caps typed operands at exactly
+// SIGNIFICANT_DIGITS: formatNumber() is the identity on this string (no
+// trailing zero, no bare trailing "."), so this alone can no longer catch an
+// AID-27 regression -- the "...trailing zero" test just below is the only
+// remaining one that does. Keep both anyway: this one still pins the digit
+// budget itself, and the trailing-zero test must not be deleted later as
+// "redundant" with it.
+test('1.23456789012345 * still displays 1.23456789012345 (AID-27 regression, an operator press must not reformat a typed operand; budget lowered to 15 by AID-29)', async (t) => {
   const dom = await loadCalculator(t);
   click(dom, 'button[data-action="clear"]');
   clickDigits(dom, '1');
   click(dom, 'button[data-action="decimal"]');
-  clickDigits(dom, '234567890123456');
+  clickDigits(dom, '23456789012345');
   click(dom, 'button[data-action="operator"][data-operator="*"]');
-  assert.equal(displayText(dom), '1.234567890123456');
+  assert.equal(displayText(dom), '1.23456789012345');
 });
 
-test('999999999999999.5 * = displays 999999999999999000000000000000 (AID-27 regression, the typed operand is not rounded before the operator swap path runs)', async (t) => {
+// AID-29 raised MAX_OPERAND_LENGTH's floor to equal SIGNIFICANT_DIGITS, so a
+// typed operand can no longer hold more precision than a computation
+// preserves -- the 16-significant-digit "999999999999999.5" this test used to
+// type is no longer reachable at all (isOperandFull() refuses the "."
+// once the 15-digit budget is spent). What is still worth guarding is that
+// the operator-swap path in chooseOperator() does not route a typed operand
+// through formatNumber() even now that doing so would leave its *value*
+// unchanged: formatNumber() still collapses a trailing zero the user
+// explicitly typed (e.g. "99999999999999.0" -> "99999999999999"), which would
+// silently reformat the display for no reason.
+test('99999999999999.0 * still displays 99999999999999.0 (AID-27 regression, an operator press must not collapse a typed operand\'s trailing zero)', async (t) => {
   const dom = await loadCalculator(t);
   click(dom, 'button[data-action="clear"]');
-  clickDigits(dom, '999999999999999');
+  clickDigits(dom, '99999999999999');
   click(dom, 'button[data-action="decimal"]');
-  clickDigits(dom, '5');
+  clickDigits(dom, '0');
   click(dom, 'button[data-action="operator"][data-operator="*"]');
-  click(dom, 'button[data-action="equals"]');
-  assert.equal(displayText(dom), '999999999999999000000000000000');
+  assert.equal(displayText(dom), '99999999999999.0');
 });
 
 test('0 + +/- * = does not display Error (AID-27, the sign-strip guard on a bare "0" accumulator)', async (t) => {
@@ -525,12 +577,16 @@ test('+/- on a computed result after = still leaves it non-editable', async (t) 
   assert.equal(displayText(dom), '2');
 });
 
-test('1000000000000000 x 1000000 = displays 1000000000000000000000, no exponent (AID-21 repro 1)', async (t) => {
+// 1e15 (16 digits) can no longer be typed directly now that AID-29 caps
+// MAX_OPERAND_LENGTH at 15, so this reaches the same 1e21 boundary with 1e14
+// (15 digits) x 1e7 instead -- the interesting thing under test is still the
+// plain-decimal rendering right at the 1e21 exponential-notation threshold.
+test('100000000000000 x 10000000 = displays 1000000000000000000000, no exponent (AID-21 repro 1)', async (t) => {
   const dom = await loadCalculator(t);
   click(dom, 'button[data-action="clear"]');
-  clickDigits(dom, '1000000000000000');
+  clickDigits(dom, '100000000000000');
   click(dom, 'button[data-action="operator"][data-operator="*"]');
-  clickDigits(dom, '1000000');
+  clickDigits(dom, '10000000');
   click(dom, 'button[data-action="equals"]');
   assert.equal(displayText(dom), '1000000000000000000000');
 
@@ -550,26 +606,32 @@ test('99999999999 x 99999999999 = displays 9999999999800000000000, no exponent (
   assert.equal(displayText(dom), '9999999999800000000000');
 });
 
-test('1000000000000000 x 100000 = still displays 100000000000000000000 (just below the 1e21 boundary)', async (t) => {
+// Same AID-29 reasoning as the repro above: 1e14 (15 digits) x 1e6 lands
+// just below the boundary instead of 1e15 (16 digits) x 1e5.
+test('100000000000000 x 1000000 = still displays 100000000000000000000 (just below the 1e21 boundary)', async (t) => {
   const dom = await loadCalculator(t);
   click(dom, 'button[data-action="clear"]');
-  clickDigits(dom, '1000000000000000');
+  clickDigits(dom, '100000000000000');
   click(dom, 'button[data-action="operator"][data-operator="*"]');
-  clickDigits(dom, '100000');
+  clickDigits(dom, '1000000');
   click(dom, 'button[data-action="equals"]');
   assert.equal(displayText(dom), '100000000000000000000');
 });
 
-test('9999999999999999 x 9999999999999999 = displays a plain decimal, not 1e+32 (AID-23 repro 1)', async (t) => {
+// 15 nines (not 16, per AID-29) is the largest run of 9s that can still be
+// typed directly; the assertion compares against the same JS expression
+// rather than a hardcoded product, so it still exercises the same "huge
+// product renders as a plain decimal" path AID-23 fixed.
+test('999999999999999 x 999999999999999 = displays a plain decimal, not 9.99999999999998e+29 (AID-23 repro 1)', async (t) => {
   const dom = await loadCalculator(t);
   click(dom, 'button[data-action="clear"]');
-  clickDigits(dom, '9999999999999999');
+  clickDigits(dom, '999999999999999');
   click(dom, 'button[data-action="operator"][data-operator="*"]');
-  clickDigits(dom, '9999999999999999');
+  clickDigits(dom, '999999999999999');
   click(dom, 'button[data-action="equals"]');
   const shown = displayText(dom);
   assert.doesNotMatch(shown, /e[+-]/);
-  assert.equal(Number(shown), 9999999999999999 * 9999999999999999);
+  assert.equal(Number(shown), 999999999999999 * 999999999999999);
 });
 
 test('1 / 10000000 = displays 0.0000001, not 1e-7 (AID-23 repro 2)', async (t) => {
@@ -697,38 +759,38 @@ test('C . then twenty 0s then 1 displays 0.0000000000000000000001, keeping the s
   assert.equal(digitCount(shown), 1);
 });
 
-test('after the AID-22 repro, a further 15 digits are accepted for a full 16-digit budget, and the 17th is refused', async (t) => {
+test('after the AID-22 repro, a further 14 digits are accepted for a full 15-digit budget, and the 16th is refused (budget lowered by AID-29)', async (t) => {
   const dom = await loadCalculator(t);
   click(dom, 'button[data-action="clear"]');
   click(dom, 'button[data-action="decimal"]');
   clickDigits(dom, '0'.repeat(20));
   clickDigits(dom, '1');
-  clickDigits(dom, '234567890123456');
+  clickDigits(dom, '23456789012345');
   let shown = displayText(dom);
-  assert.equal(shown, '0.' + '0'.repeat(20) + '1234567890123456');
-  assert.equal(digitCount(shown), 16);
+  assert.equal(shown, '0.' + '0'.repeat(20) + '123456789012345');
+  assert.equal(digitCount(shown), 15);
 
   clickDigits(dom, '7');
   shown = displayText(dom);
-  assert.equal(shown, '0.' + '0'.repeat(20) + '1234567890123456');
-  assert.equal(digitCount(shown), 16);
+  assert.equal(shown, '0.' + '0'.repeat(20) + '123456789012345');
+  assert.equal(digitCount(shown), 15);
 });
 
-test('1 . then 23456789012345678 stops at 1.234567890123456 (AID-22 criterion 2, ordinary decimals keep today\'s cap)', async (t) => {
+test('1 . then 23456789012345678 stops at 1.23456789012345 (AID-22 criterion 2, ordinary decimals keep today\'s cap; budget lowered to 15 by AID-29)', async (t) => {
   const dom = await loadCalculator(t);
   click(dom, 'button[data-action="clear"]');
   clickDigits(dom, '1');
   click(dom, 'button[data-action="decimal"]');
   clickDigits(dom, '23456789012345678');
-  assert.equal(displayText(dom), '1.234567890123456');
+  assert.equal(displayText(dom), '1.23456789012345');
 });
 
-test('16 digits then a 17th is refused for a plain integer operand (AID-22 criterion 3, integer cap unchanged)', async (t) => {
+test('15 digits then a 16th is refused for a plain integer operand (AID-22 criterion 3, integer cap unchanged; budget lowered to 15 by AID-29)', async (t) => {
   const dom = await loadCalculator(t);
   click(dom, 'button[data-action="clear"]');
-  clickDigits(dom, '1234567890123456');
+  clickDigits(dom, '123456789012345');
   clickDigits(dom, '7');
-  assert.equal(displayText(dom), '1234567890123456');
+  assert.equal(displayText(dom), '123456789012345');
 });
 
 test('MAX_OPERAND_CHARS caps a long leading-zero run that costs no significant digits (AID-22)', async (t) => {
@@ -767,8 +829,9 @@ test('the sign does not consume MAX_OPERAND_CHARS either (AID-22, cf. AID-19)', 
   // sign went on, so only the first `maxOperandChars - 53` characters of the
   // tail can still land -- 13 are typed, so the cap, not the click count, is
   // what stops it. At most 14 significant digits are ever attempted (12 end up
-  // in the operand), well under MAX_OPERAND_LENGTH, so what this pins is the
-  // character cap specifically.
+  // in the operand) -- still under MAX_OPERAND_LENGTH (15 since AID-29, so
+  // only by one digit now, not the wider margin this used to have), so what
+  // this pins is the character cap specifically.
   const kept = '0.' + '0'.repeat(50) + '1';
   assert.equal(shown, `-${kept}${tail.slice(0, maxOperandChars - kept.length)}`);
   // Sign excluded: the same budget of characters a positive operand gets.
@@ -988,4 +1051,86 @@ test('1 / 3 * 3 = displays 0.999999999999999 (AID-28, the chained accumulator ma
   // the "1" back would silently reintroduce AID-28, so this asserts the
   // trade-off instead of leaving it to be "fixed" later.
   assert.equal(displayText(dom), '0.999999999999999');
+});
+
+// AID-29: characterisation tests pinned at the current 15-digit cap -- they
+// demonstrate that a maximal, MAX_OPERAND_LENGTH-digit typed operand survives
+// a computation digit-for-digit, but they hardcode that digit count, so on
+// their own they would keep passing even if MAX_OPERAND_LENGTH and
+// SIGNIFICANT_DIGITS were ever set to different values again (they'd just pin
+// a different -- possibly still broken -- number of digits). See the
+// cap-agnostic test and the direct invariant assertion further below for
+// what actually guards the invariant itself. Before AID-29, a 16-digit typed
+// operand held one more significant digit than the 15-digit rounding
+// applied on the next fold, so its last digit was silently dropped.
+test('1.23456789012345 + 0 = still displays 1.23456789012345 (AID-29, a maximal typed operand survives the equals path)', async (t) => {
+  const dom = await loadCalculator(t);
+  click(dom, 'button[data-action="clear"]');
+  clickDigits(dom, '1');
+  click(dom, 'button[data-action="decimal"]');
+  clickDigits(dom, '23456789012345');
+  click(dom, 'button[data-action="operator"][data-operator="+"]');
+  clickDigits(dom, '0');
+  click(dom, 'button[data-action="equals"]');
+  assert.equal(displayText(dom), '1.23456789012345');
+});
+
+test('1.23456789012345 + 0 + still displays 1.23456789012345 (AID-29, a maximal typed operand survives the chained-operator apply path with no "=" pressed)', async (t) => {
+  const dom = await loadCalculator(t);
+  click(dom, 'button[data-action="clear"]');
+  clickDigits(dom, '1');
+  click(dom, 'button[data-action="decimal"]');
+  clickDigits(dom, '23456789012345');
+  click(dom, 'button[data-action="operator"][data-operator="+"]');
+  clickDigits(dom, '0');
+  click(dom, 'button[data-action="operator"][data-operator="+"]');
+  assert.equal(displayText(dom), '1.23456789012345');
+});
+
+test('123456789012.345 + 0 = still displays 123456789012.345 (AID-29, a maximal typed operand at a larger magnitude survives the equals path)', async (t) => {
+  const dom = await loadCalculator(t);
+  click(dom, 'button[data-action="clear"]');
+  clickDigits(dom, '123456789012');
+  click(dom, 'button[data-action="decimal"]');
+  clickDigits(dom, '345');
+  click(dom, 'button[data-action="operator"][data-operator="+"]');
+  clickDigits(dom, '0');
+  click(dom, 'button[data-action="equals"]');
+  assert.equal(displayText(dom), '123456789012.345');
+});
+
+// Cap-agnostic version of the three tests above: rather than hardcoding a
+// particular digit count, this types well past *any* plausible cap and
+// simply captures whatever the display actually accepted, then checks that
+// exact string survives a "+ 0 =". The operand must be a non-integer: an
+// all-digit integer bypasses toPrecision() entirely (see the
+// Number.isInteger() fast path in roundToDisplayPrecision()), so it would
+// round-trip through "+ 0 =" unchanged no matter what MAX_OPERAND_LENGTH and
+// SIGNIFICANT_DIGITS were set to, and this test would pass by coincidence
+// rather than by the invariant actually holding. This fails on the pre-AID-29
+// script.js (whose 16-digit cap outran its 15-digit rounding precision) and
+// fails again if MAX_OPERAND_LENGTH is ever set back above SIGNIFICANT_DIGITS,
+// regardless of what either value is at the time -- unlike the
+// characterisation tests above, it cannot be satisfied by coincidence.
+test('an over-typed decimal operand, whatever the display accepted, survives a "+ 0 =" unchanged (AID-29, cap-agnostic invariant guard)', async (t) => {
+  const dom = await loadCalculator(t);
+  click(dom, 'button[data-action="clear"]');
+  clickDigits(dom, '2');
+  click(dom, 'button[data-action="decimal"]');
+  clickDigits(dom, '345678901234567890'); // deliberately past any cap
+  const typed = displayText(dom);
+  click(dom, 'button[data-action="operator"][data-operator="+"]');
+  clickDigits(dom, '0');
+  click(dom, 'button[data-action="equals"]');
+  assert.equal(displayText(dom), typed);
+});
+
+// The direct invariant itself, read straight out of script.js's top-level
+// scope (see the MAX_OPERAND_CHARS tests above for why dom.window.eval can
+// see a top-level `const`): everything else in this file is a consequence of
+// this one equality holding, so pin it explicitly rather than only ever
+// inferring it from behaviour.
+test('MAX_OPERAND_LENGTH equals SIGNIFICANT_DIGITS (AID-29, the cap==precision invariant itself)', async (t) => {
+  const dom = await loadCalculator(t);
+  assert.equal(dom.window.eval('MAX_OPERAND_LENGTH'), dom.window.eval('SIGNIFICANT_DIGITS'));
 });
