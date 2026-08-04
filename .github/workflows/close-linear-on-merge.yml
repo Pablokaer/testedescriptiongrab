@@ -24,6 +24,7 @@ jobs:
     # Only act on real merges, never on PRs that are just closed.
     if: github.event.pull_request.merged == true
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/setup-python@v5
         with:
@@ -44,18 +45,23 @@ jobs:
           API = "https://api.linear.app/graphql"
           KEY = os.environ.get("LINEAR_API_KEY")
           TEAM = os.environ.get("TEAM_KEY", "AID").strip() or "AID"
+          TIMEOUT = 20  # seconds; fail fast rather than hang the job.
           if not KEY:
               sys.exit("Missing LINEAR_API_KEY secret in this repo.")
 
-          def gql(query, variables=None):
+          def gql(query, variables=None, retry=True):
               body = json.dumps({"query": query, "variables": variables or {}}).encode()
               req = urllib.request.Request(API, data=body, headers={
                   "Content-Type": "application/json", "Authorization": KEY})
               try:
-                  with urllib.request.urlopen(req) as r:
+                  with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
                       data = json.loads(r.read())
               except urllib.error.HTTPError as e:
                   sys.exit(f"Linear API HTTP {e.code}: {e.read().decode()[:300]}")
+              except (TimeoutError, urllib.error.URLError) as e:
+                  if retry:
+                      return gql(query, variables, retry=False)
+                  sys.exit(f"Linear API unreachable or timed out after {TIMEOUT}s: {e}")
               if data.get("errors"):
                   sys.exit(f"Linear API error: {data['errors']}")
               return data["data"]
