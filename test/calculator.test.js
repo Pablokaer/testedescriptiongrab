@@ -161,6 +161,83 @@ test('1 / 0 = displays Error (non-finite result)', async (t) => {
   assert.equal(displayText(dom), 'Error');
 });
 
+// AID-33: +/- and = used to be the only two keys that stayed silent no-ops
+// in the Error state (every other key -- digits, ".", backspace, and every
+// operator since AID-13 -- already recovered). They now mirror the same
+// recovery baseline chooseOperator() uses.
+test('1 / 0 = then +/- recovers from Error: displays 0 and clears calculatorState.error (AID-33)', async (t) => {
+  const dom = await loadCalculator(t);
+  click(dom, 'button[data-action="clear"]');
+  clickDigits(dom, '1');
+  click(dom, 'button[data-action="operator"][data-operator="/"]');
+  clickDigits(dom, '0');
+  click(dom, 'button[data-action="equals"]');
+  assert.equal(displayText(dom), 'Error');
+
+  click(dom, 'button[data-action="negate"]');
+  assert.equal(displayText(dom), '0');
+  // Read the real flag out of script.js's top-level scope, same technique the
+  // MAX_OPERAND_CHARS tests further down use (calculatorState is `const`, so
+  // it is never a `window` property, but dom.window.eval shares that scope).
+  assert.equal(dom.window.eval('calculatorState.error'), false);
+});
+
+test('1 / 0 = = recovers from Error: displays 0, clears calculatorState.error, and does not replay the divide-by-zero (AID-33)', async (t) => {
+  const dom = await loadCalculator(t);
+  click(dom, 'button[data-action="clear"]');
+  clickDigits(dom, '1');
+  click(dom, 'button[data-action="operator"][data-operator="/"]');
+  clickDigits(dom, '0');
+  click(dom, 'button[data-action="equals"]');
+  assert.equal(displayText(dom), 'Error');
+
+  click(dom, 'button[data-action="equals"]');
+  assert.equal(displayText(dom), '0');
+  assert.equal(dom.window.eval('calculatorState.error'), false);
+  // `lastOperator`/`lastOperand` must be nulled too, not just the display:
+  // otherwise a later bare "=" could still replay the divide-by-zero it
+  // remembered before erroring out (see the repeat-on-equals branch of
+  // equals()).
+  assert.equal(dom.window.eval('calculatorState.lastOperator'), null);
+  assert.equal(dom.window.eval('calculatorState.lastOperand'), null);
+});
+
+test('1 / 0 = +/- 7 displays 7, not 07 or -7 (digit after +/- recovery behaves exactly like after C)', async (t) => {
+  const dom = await loadCalculator(t);
+  click(dom, 'button[data-action="clear"]');
+  clickDigits(dom, '1');
+  click(dom, 'button[data-action="operator"][data-operator="/"]');
+  clickDigits(dom, '0');
+  click(dom, 'button[data-action="equals"]');
+  click(dom, 'button[data-action="negate"]');
+  clickDigits(dom, '7');
+  assert.equal(displayText(dom), '7');
+});
+
+test('1 / 0 = = 7 displays 7, not 07 or -7 (digit after = recovery behaves exactly like after C)', async (t) => {
+  const dom = await loadCalculator(t);
+  click(dom, 'button[data-action="clear"]');
+  clickDigits(dom, '1');
+  click(dom, 'button[data-action="operator"][data-operator="/"]');
+  clickDigits(dom, '0');
+  click(dom, 'button[data-action="equals"]');
+  click(dom, 'button[data-action="equals"]');
+  clickDigits(dom, '7');
+  assert.equal(displayText(dom), '7');
+});
+
+test('1 / 0 = +/- +/- displays 0, never -0 (the negate() zero invariant survives Error recovery)', async (t) => {
+  const dom = await loadCalculator(t);
+  click(dom, 'button[data-action="clear"]');
+  clickDigits(dom, '1');
+  click(dom, 'button[data-action="operator"][data-operator="/"]');
+  clickDigits(dom, '0');
+  click(dom, 'button[data-action="equals"]');
+  click(dom, 'button[data-action="negate"]');
+  click(dom, 'button[data-action="negate"]');
+  assert.equal(displayText(dom), '0');
+});
+
 test('0 x -5 = displays 0 (negative zero normalises to 0)', async (t) => {
   const dom = await loadCalculator(t);
   click(dom, 'button[data-action="clear"]');
