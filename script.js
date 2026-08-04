@@ -409,7 +409,18 @@ function backspace() {
 
 function negate() {
   if (calculatorState.error) {
-    return;
+    // Recover like the other keys (see chooseOperator() below) instead of
+    // silently dropping the press: reset to a well-defined baseline operand,
+    // update the display off of that baseline, then let the rest of this
+    // function run normally on it -- the zero branch just below then leaves
+    // the display at "0", never "-0", per the rule documented there.
+    calculatorState.error = false;
+    calculatorState.current = '0';
+    calculatorState.previous = null;
+    calculatorState.operator = null;
+    calculatorState.overwrite = true;
+    calculatorState.pendingNegative = false;
+    updateDisplay();
   }
 
   // "+/-" on a zero (in any typed form, e.g. "0", "0.", "0.00") must never
@@ -573,7 +584,19 @@ function chooseOperator(operator) {
 
 function equals() {
   if (calculatorState.error) {
-    return;
+    // Recover like the other keys (see chooseOperator() above) instead of
+    // silently dropping the press: reset to a well-defined baseline operand,
+    // update the display off of that baseline, then let the rest of this
+    // function run normally on it. `lastOperator`/`lastOperand` are already
+    // null here -- every path that sets `error` nulls them first -- so the
+    // repeat-on-equals branch below cannot replay a pre-error operation.
+    calculatorState.error = false;
+    calculatorState.current = '0';
+    calculatorState.previous = null;
+    calculatorState.operator = null;
+    calculatorState.overwrite = true;
+    calculatorState.pendingNegative = false;
+    updateDisplay();
   }
 
   if (calculatorState.operator !== null) {
