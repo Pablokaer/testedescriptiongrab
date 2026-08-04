@@ -735,3 +735,64 @@ test('-123 backspaced twice still displays -1 (AID-24, a genuine negative operan
   click(dom, 'button[data-action="backspace"]');
   assert.equal(displayText(dom), '-1');
 });
+
+// AID-25: a zero-valued accumulator ("0") was previously indistinguishable,
+// inside negate()'s zero-guard, from a zero the user actually typed, so
+// "+/-" pressed right after an operator was a no-op whenever the running
+// total was exactly 0 -- the pending sign never made it to `pendingNegative`.
+
+test('0 + +/- 5 = displays -5 (AID-25 repro 1, +/- on a zero accumulator)', async (t) => {
+  const dom = await loadCalculator(t);
+  click(dom, 'button[data-action="clear"]');
+  clickDigits(dom, '0');
+  click(dom, 'button[data-action="operator"][data-operator="+"]');
+  click(dom, 'button[data-action="negate"]');
+  // The accumulator itself must stay "0", never "-0", while the sign is
+  // only pending.
+  assert.equal(displayText(dom), '0');
+  clickDigits(dom, '5');
+  click(dom, 'button[data-action="equals"]');
+  assert.equal(displayText(dom), '-5');
+});
+
+test('5 - 5 + +/- 3 = displays -3 (AID-25 repro 2, +/- on an accumulator that computed down to zero)', async (t) => {
+  const dom = await loadCalculator(t);
+  click(dom, 'button[data-action="clear"]');
+  clickDigits(dom, '5');
+  click(dom, 'button[data-action="operator"][data-operator="-"]');
+  clickDigits(dom, '5');
+  click(dom, 'button[data-action="operator"][data-operator="+"]');
+  click(dom, 'button[data-action="negate"]');
+  assert.equal(displayText(dom), '0');
+  clickDigits(dom, '3');
+  click(dom, 'button[data-action="equals"]');
+  assert.equal(displayText(dom), '-3');
+});
+
+test('0 + +/- 0 +/- 5 = displays 5 (AID-25, a typed zero in between still cancels the pending sign)', async (t) => {
+  const dom = await loadCalculator(t);
+  click(dom, 'button[data-action="clear"]');
+  clickDigits(dom, '0');
+  click(dom, 'button[data-action="operator"][data-operator="+"]');
+  click(dom, 'button[data-action="negate"]');
+  // A typed "0" between two "+/-" presses cancels the pending sign, exactly
+  // as it does on a non-zero accumulator (see the AID-20 test above).
+  clickDigits(dom, '0');
+  click(dom, 'button[data-action="negate"]');
+  clickDigits(dom, '5');
+  click(dom, 'button[data-action="equals"]');
+  assert.equal(displayText(dom), '5');
+});
+
+test('0 + +/- 0 Backspace 5 = displays 5 (AID-25, backspace parity on a zero accumulator unaffected)', async (t) => {
+  const dom = await loadCalculator(t);
+  click(dom, 'button[data-action="clear"]');
+  clickDigits(dom, '0');
+  click(dom, 'button[data-action="operator"][data-operator="+"]');
+  click(dom, 'button[data-action="negate"]');
+  clickDigits(dom, '0');
+  click(dom, 'button[data-action="backspace"]');
+  clickDigits(dom, '5');
+  click(dom, 'button[data-action="equals"]');
+  assert.equal(displayText(dom), '5');
+});

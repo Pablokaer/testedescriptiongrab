@@ -387,6 +387,17 @@ function negate() {
   // no-op). So zero can always *lose* a sign here, it just can never *gain*
   // one.
   if (parseFloat(calculatorState.current) === 0) {
+    // AID-25 decision: the rule above is about the operand being entered, so
+    // it must not swallow the sign when the zero on the display is merely the
+    // accumulator rendered into `current` (see chooseOperator) while an
+    // operator is pending. The digit string must still never become "-0", but
+    // the sign itself belongs to the operand about to be typed, so it has to
+    // keep toggling exactly like the general case below would -- otherwise
+    // "+/-" after an operator is a no-op whenever the running total is 0.
+    if (calculatorState.overwrite && calculatorState.operator !== null) {
+      calculatorState.pendingNegative = !calculatorState.pendingNegative;
+      return;
+    }
     if (calculatorState.current.startsWith('-')) {
       calculatorState.current = calculatorState.current.slice(1);
       updateDisplay();
