@@ -374,6 +374,96 @@ test('5 + +/- + 2 = displays 7, and 5 + +/- * 2 = displays 10 (an operator swap 
   assert.equal(displayText(dom), '10');
 });
 
+test('5 + +/- - = displays 0, 5 + +/- + = displays 10, 5 + +/- * = displays 25 (AID-27 repro, operator swap with no digit typed)', async (t) => {
+  const dom = await loadCalculator(t);
+  click(dom, 'button[data-action="clear"]');
+  clickDigits(dom, '5');
+  click(dom, 'button[data-action="operator"][data-operator="+"]');
+  click(dom, 'button[data-action="negate"]');
+  click(dom, 'button[data-action="operator"][data-operator="-"]');
+  // The swap must discard the pending sign from the accumulator itself, not
+  // just from the arithmetic: the display has to read "5", not "-5".
+  assert.equal(displayText(dom), '5');
+  click(dom, 'button[data-action="equals"]');
+  assert.equal(displayText(dom), '0');
+
+  click(dom, 'button[data-action="clear"]');
+  clickDigits(dom, '5');
+  click(dom, 'button[data-action="operator"][data-operator="+"]');
+  click(dom, 'button[data-action="negate"]');
+  click(dom, 'button[data-action="operator"][data-operator="+"]');
+  click(dom, 'button[data-action="equals"]');
+  assert.equal(displayText(dom), '10');
+
+  click(dom, 'button[data-action="clear"]');
+  clickDigits(dom, '5');
+  click(dom, 'button[data-action="operator"][data-operator="+"]');
+  click(dom, 'button[data-action="negate"]');
+  click(dom, 'button[data-action="operator"][data-operator="*"]');
+  click(dom, 'button[data-action="equals"]');
+  assert.equal(displayText(dom), '25');
+});
+
+test('5 + +/- - 3 = still displays 2 (AID-27 control, a digit typed after the swap already masked this bug)', async (t) => {
+  const dom = await loadCalculator(t);
+  click(dom, 'button[data-action="clear"]');
+  clickDigits(dom, '5');
+  click(dom, 'button[data-action="operator"][data-operator="+"]');
+  click(dom, 'button[data-action="negate"]');
+  click(dom, 'button[data-action="operator"][data-operator="-"]');
+  clickDigits(dom, '3');
+  click(dom, 'button[data-action="equals"]');
+  assert.equal(displayText(dom), '2');
+});
+
+test('1.234567890123456 * still displays 1.234567890123456 (AID-27 regression, an operator press must not reformat a typed operand)', async (t) => {
+  const dom = await loadCalculator(t);
+  click(dom, 'button[data-action="clear"]');
+  clickDigits(dom, '1');
+  click(dom, 'button[data-action="decimal"]');
+  clickDigits(dom, '234567890123456');
+  click(dom, 'button[data-action="operator"][data-operator="*"]');
+  assert.equal(displayText(dom), '1.234567890123456');
+});
+
+test('999999999999999.5 * = displays 999999999999999000000000000000 (AID-27 regression, the typed operand is not rounded before the operator swap path runs)', async (t) => {
+  const dom = await loadCalculator(t);
+  click(dom, 'button[data-action="clear"]');
+  clickDigits(dom, '999999999999999');
+  click(dom, 'button[data-action="decimal"]');
+  clickDigits(dom, '5');
+  click(dom, 'button[data-action="operator"][data-operator="*"]');
+  click(dom, 'button[data-action="equals"]');
+  assert.equal(displayText(dom), '999999999999999000000000000000');
+});
+
+test('0 + +/- * = does not display Error (AID-27, the sign-strip guard on a bare "0" accumulator)', async (t) => {
+  const dom = await loadCalculator(t);
+  click(dom, 'button[data-action="clear"]');
+  clickDigits(dom, '0');
+  click(dom, 'button[data-action="operator"][data-operator="+"]');
+  click(dom, 'button[data-action="negate"]');
+  click(dom, 'button[data-action="operator"][data-operator="*"]');
+  click(dom, 'button[data-action="equals"]');
+  assert.equal(displayText(dom), '0');
+});
+
+test('1 - 5 - +/- * displays -4, and = displays 16 (AID-27, the sign undo is a toggle, not a one-way strip, on a negative accumulator)', async (t) => {
+  const dom = await loadCalculator(t);
+  click(dom, 'button[data-action="clear"]');
+  clickDigits(dom, '1');
+  click(dom, 'button[data-action="operator"][data-operator="-"]');
+  clickDigits(dom, '5');
+  click(dom, 'button[data-action="operator"][data-operator="-"]');
+  click(dom, 'button[data-action="negate"]');
+  click(dom, 'button[data-action="operator"][data-operator="*"]');
+  // negate() removed the "-" here (the accumulator was already negative), so
+  // the swap must restore it rather than leaving the display's sign stale.
+  assert.equal(displayText(dom), '-4');
+  click(dom, 'button[data-action="equals"]');
+  assert.equal(displayText(dom), '16');
+});
+
 test('5 + 2 +/- = still displays 3 (negate on an already-typed operand toggles in place)', async (t) => {
   const dom = await loadCalculator(t);
   click(dom, 'button[data-action="clear"]');
