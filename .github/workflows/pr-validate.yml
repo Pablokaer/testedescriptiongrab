@@ -17,9 +17,18 @@ name: Validate PR with Claude
 #     ANTHROPIC_API_KEY = <key that can run Claude>
 #   (GITHUB_TOKEN is provided automatically; the job requests pull-requests: write.)
 #
-# Until that secret is set, the `preflight` job below says so in the run summary and
-# skips `validate`, rather than passing while posting "could not produce a review".
-# Once it IS set, a review that cannot be produced or posted fails the job loudly.
+# Until that secret is set, this workflow FAILS: the `preflight` job below reports
+# the missing secret as a failed check, not a passing one, and `validate` never runs.
+# This is deliberate — a green `preflight`/`validate` must always mean a review
+# actually ran; it must never be readable as "reviewed" when no review happened.
+# (`fork-notice` is the documented exception above: it is green precisely because it
+# announces that no review was possible.)
+# Once the secret IS set, a review that cannot be produced or posted also fails the
+# job loudly (see the `validate` job below).
+#
+# Branch protection note: GitHub counts a SKIPPED required check as passing. With the
+# secret absent `preflight` is red but `validate` is skipped, so require `preflight`
+# (not only `validate`) if you gate merges on this workflow.
 
 on:
   pull_request:
@@ -30,10 +39,11 @@ permissions:
   pull-requests: write
 
 jobs:
-  # Whether the reviewer is configured at all. Without this gate a repo that has
-  # never set ANTHROPIC_API_KEY would fail `validate` on every PR — and the old
-  # `|| true` hid exactly that, posting "could not produce a review" and passing.
-  # Neither is acceptable: say plainly that no review was produced.
+  # Whether the reviewer is configured at all. A job cannot CHOOSE a neutral
+  # conclusion in GitHub Actions — the only outcome it can report for itself is
+  # success or failure — so "not configured" is reported as a failure rather than as
+  # a pass. That is the fail-closed choice: it would be worse for this workflow to
+  # pass without ever having reviewed the PR.
   preflight:
     if: github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
@@ -51,8 +61,9 @@ jobs:
             echo "configured=true" >> "$GITHUB_OUTPUT"
           else
             echo "configured=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::ANTHROPIC_API_KEY is not set in this repository, so the Claude reviewer did not run."
+            echo "::error::ANTHROPIC_API_KEY is not set in this repository, so the Claude reviewer did not run. This check is failing on purpose so a green check never means an unreviewed PR."
             echo "**No automated review was produced for this PR.** \`ANTHROPIC_API_KEY\` is not set in this repository, so the Claude reviewer could not run and a maintainer must review this PR manually. To enable it: Settings > Secrets and variables > Actions > New repository secret." >> "$GITHUB_STEP_SUMMARY"
+            exit 1
           fi
 
   validate:
