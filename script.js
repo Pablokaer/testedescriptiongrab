@@ -347,7 +347,21 @@ function backspace() {
   }
 
   const next = calculatorState.current.slice(0, -1);
-  calculatorState.current = next === '' || next === '-' || next === '-0' ? '0' : next;
+  // AID-24 decision: normalise by value, not by spelling. The old allowlist
+  // (''/'-'/'-0' -> '0') missed every decimal form of negative zero
+  // ('-0.', '-0.0', '-0.00', ...), which then reached the display verbatim
+  // -- exactly the "-0" state negate() below refuses to ever produce. Once
+  // the empty-operand cases are handled, any remainder that still parses to
+  // zero and carries a leading '-' just has that sign stripped, which maps
+  // '-0' -> '0' and '-0.' -> '0.' (and any number of trailing zeros) from a
+  // single rule instead of one literal per spelling.
+  if (next === '' || next === '-') {
+    calculatorState.current = '0';
+  } else if (next.startsWith('-') && parseFloat(next) === 0) {
+    calculatorState.current = next.slice(1);
+  } else {
+    calculatorState.current = next;
+  }
   if (calculatorState.current === '0') {
     calculatorState.overwrite = true;
   }

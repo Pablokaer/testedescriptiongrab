@@ -663,3 +663,75 @@ test('the sign does not consume MAX_OPERAND_CHARS either (AID-22, cf. AID-19)', 
   assert.equal(shown.slice(1).length, maxOperandChars);
   assert.equal(shown.startsWith('-'), true);
 });
+
+// AID-24: backspace() must normalise a post-slice operand by value, not by a
+// literal allowlist, so every decimal spelling of negative zero (not just
+// '-0') loses its sign instead of reaching the display.
+
+test('0 . 5 +/- Backspace displays 0.5 typed digit by digit ends 0. rather than -0. (AID-24 repro)', async (t) => {
+  const dom = await loadCalculator(t);
+  click(dom, 'button[data-action="clear"]');
+  clickDigits(dom, '0');
+  click(dom, 'button[data-action="decimal"]');
+  clickDigits(dom, '5');
+  assert.equal(displayText(dom), '0.5');
+
+  click(dom, 'button[data-action="negate"]');
+  assert.equal(displayText(dom), '-0.5');
+
+  click(dom, 'button[data-action="backspace"]');
+  const shown = displayText(dom);
+  assert.equal(shown, '0.');
+  assert.equal(shown.startsWith('-'), false);
+
+  // '0.' is not exactly '0', so overwrite must not be re-armed: the next
+  // digit appends rather than replacing the operand.
+  clickDigits(dom, '5');
+  assert.equal(displayText(dom), '0.5');
+});
+
+test('-0.00 Backspace displays 0.0, never a leading "-" (AID-24, longer trailing-zero form)', async (t) => {
+  const dom = await loadCalculator(t);
+  click(dom, 'button[data-action="clear"]');
+  clickDigits(dom, '5');
+  click(dom, 'button[data-action="operator"][data-operator="+"]');
+  click(dom, 'button[data-action="negate"]');
+  click(dom, 'button[data-action="decimal"]');
+  clickDigits(dom, '00');
+  assert.equal(displayText(dom), '-0.00');
+
+  click(dom, 'button[data-action="backspace"]');
+  const shown = displayText(dom);
+  assert.equal(shown, '0.0');
+  assert.equal(shown.startsWith('-'), false);
+});
+
+test('-1 Backspace displays 0 with overwrite re-armed (AID-24, exact "0" result still re-arms)', async (t) => {
+  const dom = await loadCalculator(t);
+  click(dom, 'button[data-action="clear"]');
+  clickDigits(dom, '1');
+  click(dom, 'button[data-action="negate"]');
+  assert.equal(displayText(dom), '-1');
+
+  click(dom, 'button[data-action="backspace"]');
+  assert.equal(displayText(dom), '0');
+
+  // Overwrite re-armed: the next digit replaces the "0" rather than
+  // appending to it (would be "05" if it were still editable).
+  clickDigits(dom, '5');
+  assert.equal(displayText(dom), '5');
+});
+
+test('-123 backspaced twice still displays -1 (AID-24, a genuine negative operand is unaffected)', async (t) => {
+  const dom = await loadCalculator(t);
+  click(dom, 'button[data-action="clear"]');
+  clickDigits(dom, '123');
+  click(dom, 'button[data-action="negate"]');
+  assert.equal(displayText(dom), '-123');
+
+  click(dom, 'button[data-action="backspace"]');
+  assert.equal(displayText(dom), '-12');
+
+  click(dom, 'button[data-action="backspace"]');
+  assert.equal(displayText(dom), '-1');
+});
