@@ -78,17 +78,42 @@ const calculatorState = {
   lastOperand: null, // number applied by the most recent "=", for repeat-on-equals
 };
 
-// Turns a `Number.prototype.toString()` result already in exponential form
-// (e.g. "1e+21", "-9.9999999998e+21") into the equivalent plain-digit string,
-// by dropping the decimal point and right-padding the mantissa digits with
-// zeros up to the exponent. Only called for exact-integer doubles at or
-// above 1e21, where toString() forces exponential notation.
-function expandExponential(str) {
-  const match = /^(-?)(\d)(?:\.(\d+))?e\+(\d+)$/.exec(str);
-  const [, sign, leadingDigit, fractionDigits = '', exponent] = match;
-  const digits = leadingDigit + fractionDigits;
-  const zeros = Number(exponent) - fractionDigits.length;
-  return sign + digits + '0'.repeat(zeros);
+// Renders a finite double as a plain, non-exponential decimal string. This is
+// the single renderer every formatNumber() return path below goes through, so
+// they can no longer drift apart on notation (AID-23): Number.prototype.
+// toString() switches to exponential form ("1e+32", "1e-7") once |value| >=
+// 1e21 or < 1e-6, which every one of those paths used to call. toFixed() is
+// not a substitute -- toFixed(0) still returns exponential notation above
+// 1e21, and rounds/truncates below it. `num.toLocaleString(..., {
+// maximumFractionDigits: 20 })` is not a substitute either, despite looking
+// like one: the option is capped at 20 fraction digits (100 in newer
+// engines), but a denormal down near Number.MIN_VALUE needs up to 324 of them
+// to survive the round trip -- past that cap it silently rounds small
+// non-zero values down to "0"/"-0", corrupting the value rather than just
+// misformatting it (parseFloat() later reads that back as exact zero). So
+// instead this only ever reformats -- never rounds -- the exact digits
+// Number.prototype.toString() already produced: toString() itself is always
+// digit-perfect (Number(str) === num always holds for its output, at any
+// magnitude down to 5e-324), the only thing wrong with its output is that it
+// sometimes chooses exponential notation. Splitting that exponential form
+// into sign/integer-digits/fraction-digits/exponent and re-assembling it as
+// plain digits (shifting the decimal point by `exponent` places, right-padded
+// or left-padded with zeros as needed) therefore keeps that same round-trip
+// guarantee at every magnitude, matching AID-21's "never invent digits" rule.
+// toString() already renders -0 as "0", so a non-exponential `str` needs no
+// separate -0 handling; the regex only matches the exponential form.
+function toPlainDecimalString(num) {
+  const str = num.toString();
+  const match = /^(-?)(\d+)(?:\.(\d+))?e([+-])(\d+)$/.exec(str);
+  if (match === null) {
+    return str; // already plain -- toString() only used exponential notation above 1e21 or below 1e-6.
+  }
+  const [, sign, intDigits, fractionDigits = '', expSign, expDigits] = match;
+  const exponent = Number(expDigits);
+  if (expSign === '+') {
+    return sign + intDigits + fractionDigits + '0'.repeat(exponent - fractionDigits.length);
+  }
+  return `${sign}0.${'0'.repeat(exponent - intDigits.length)}${intDigits}${fractionDigits}`;
 }
 
 function formatNumber(num) {
@@ -97,23 +122,15 @@ function formatNumber(num) {
   }
   // Any value that is already an exact integer double has no fractional part
   // left to carry float noise, no matter its magnitude, so it needs no
-  // cleanup at all: return it verbatim rather than let toPrecision(15) below
-  // round away real digits beyond its 15 significant digits. (This used to be
-  // gated at MAX_SAFE_INTEGER, which clipped the fast path one ULP short of
-  // every exact integer double actually representable above it.) toString()
-  // already renders -0 as "0", so no separate normalisation is needed here.
+  // cleanup at all: hand it to toPlainDecimalString() verbatim rather than
+  // let toPrecision(15) below round away real digits beyond its 15
+  // significant digits. (This used to be gated at MAX_SAFE_INTEGER, which
+  // clipped the fast path one ULP short of every exact integer double
+  // actually representable above it.) toPlainDecimalString() renders -0 as
+  // "0", same as toString() (see its own comment above), so no separate
+  // normalisation is needed here.
   if (Number.isInteger(num)) {
-    const str = num.toString();
-    // toString() itself switches to exponential notation once the decimal
-    // exponent reaches 21 (e.g. "1e+21", "9.9999999998e+21"), which would
-    // break the "return it verbatim" promise above. Expand that exponential
-    // form back into plain digits -- this only reformats the same digits
-    // toString() already produced, it never invents any beyond what the
-    // double actually round-trips to.
-    if (Math.abs(num) >= 1e21) {
-      return expandExponential(str);
-    }
-    return str;
+    return toPlainDecimalString(num);
   }
   // Normalise to 15 significant digits to remove float noise (e.g.
   // 0.1 + 0.2) without collapsing very small results to 0 or overflowing
@@ -122,12 +139,9 @@ function formatNumber(num) {
   if (!Number.isFinite(rounded)) {
     // Rounding up can tip the handful of doubles just below MAX_VALUE over
     // the edge; keep the original finite value rather than print Infinity.
-    return num.toString();
+    return toPlainDecimalString(num);
   }
-  if (Object.is(rounded, -0)) {
-    return '0';
-  }
-  return rounded.toString();
+  return toPlainDecimalString(rounded);
 }
 
 function updateDisplay() {

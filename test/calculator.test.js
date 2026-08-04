@@ -470,6 +470,84 @@ test('1000000000000000 x 100000 = still displays 100000000000000000000 (just bel
   assert.equal(displayText(dom), '100000000000000000000');
 });
 
+test('9999999999999999 x 9999999999999999 = displays a plain decimal, not 1e+32 (AID-23 repro 1)', async (t) => {
+  const dom = await loadCalculator(t);
+  click(dom, 'button[data-action="clear"]');
+  clickDigits(dom, '9999999999999999');
+  click(dom, 'button[data-action="operator"][data-operator="*"]');
+  clickDigits(dom, '9999999999999999');
+  click(dom, 'button[data-action="equals"]');
+  const shown = displayText(dom);
+  assert.doesNotMatch(shown, /e[+-]/);
+  assert.equal(Number(shown), 9999999999999999 * 9999999999999999);
+});
+
+test('1 / 10000000 = displays 0.0000001, not 1e-7 (AID-23 repro 2)', async (t) => {
+  const dom = await loadCalculator(t);
+  click(dom, 'button[data-action="clear"]');
+  clickDigits(dom, '1');
+  click(dom, 'button[data-action="operator"][data-operator="/"]');
+  clickDigits(dom, '10000000');
+  click(dom, 'button[data-action="equals"]');
+  assert.equal(displayText(dom), '0.0000001');
+});
+
+// A `maximumFractionDigits`-based renderer (an earlier version of this fix)
+// caps out at 20-100 fraction digits, so chaining divisions down to 1e-21
+// silently rounds the value to zero instead of just misformatting it --
+// corrupting the value itself, since equals()/chooseOperator() read the
+// operand back with parseFloat(calculatorState.current). The plain-digit
+// renderer above never rounds, so the exact non-zero value must survive.
+test('-1 / 10000000 / 10000000 / 10000000 = displays -1e-21 as a plain decimal, not -0 (AID-23 regression)', async (t) => {
+  const dom = await loadCalculator(t);
+  click(dom, 'button[data-action="clear"]');
+  clickDigits(dom, '1');
+  click(dom, 'button[data-action="negate"]');
+  click(dom, 'button[data-action="operator"][data-operator="/"]');
+  clickDigits(dom, '10000000');
+  click(dom, 'button[data-action="equals"]');
+  click(dom, 'button[data-action="operator"][data-operator="/"]');
+  clickDigits(dom, '10000000');
+  click(dom, 'button[data-action="equals"]');
+  click(dom, 'button[data-action="operator"][data-operator="/"]');
+  clickDigits(dom, '10000000');
+  click(dom, 'button[data-action="equals"]');
+  const shown = displayText(dom);
+  assert.notEqual(shown, '-0');
+  assert.notEqual(shown, '0');
+  assert.doesNotMatch(shown, /e/);
+  assert.equal(Number(shown), -1e-21);
+});
+
+test('1 / 3 / 1000000 = keeps all 15 significant digits at a small magnitude (AID-23 regression)', async (t) => {
+  const dom = await loadCalculator(t);
+  click(dom, 'button[data-action="clear"]');
+  clickDigits(dom, '1');
+  click(dom, 'button[data-action="operator"][data-operator="/"]');
+  clickDigits(dom, '3');
+  click(dom, 'button[data-action="equals"]');
+  click(dom, 'button[data-action="operator"][data-operator="/"]');
+  clickDigits(dom, '1000000');
+  click(dom, 'button[data-action="equals"]');
+  const shown = displayText(dom);
+  assert.equal(Number(shown), Number((1 / 3 / 1000000).toPrecision(15)));
+});
+
+test('1 / 10000000 = = = keeps chaining (repeat-on-equals) to a non-zero value (AID-23 regression)', async (t) => {
+  const dom = await loadCalculator(t);
+  click(dom, 'button[data-action="clear"]');
+  clickDigits(dom, '1');
+  click(dom, 'button[data-action="operator"][data-operator="/"]');
+  clickDigits(dom, '10000000');
+  click(dom, 'button[data-action="equals"]');
+  click(dom, 'button[data-action="equals"]');
+  click(dom, 'button[data-action="equals"]');
+  const shown = displayText(dom);
+  assert.notEqual(shown, '0');
+  assert.doesNotMatch(shown, /e/);
+  assert.equal(Number(shown), 1e-21);
+});
+
 test('zero in any typed form stays 0 under negate', async (t) => {
   const dom = await loadCalculator(t);
 
