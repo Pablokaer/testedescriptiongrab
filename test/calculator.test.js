@@ -492,6 +492,28 @@ test('1 / 10000000 = displays 0.0000001, not 1e-7 (AID-23 repro 2)', async (t) =
   assert.equal(displayText(dom), '0.0000001');
 });
 
+test('1 / 100000000 = displays 0.00000001, not 1e-8 (AID-26 repro 1)', async (t) => {
+  const dom = await loadCalculator(t);
+  click(dom, 'button[data-action="clear"]');
+  clickDigits(dom, '1');
+  click(dom, 'button[data-action="operator"][data-operator="/"]');
+  clickDigits(dom, '100000000');
+  click(dom, 'button[data-action="equals"]');
+  assert.equal(displayText(dom), '0.00000001');
+});
+
+test('1 / 3000000 = displays a plain decimal, no exponent (AID-26 repro 2)', async (t) => {
+  const dom = await loadCalculator(t);
+  click(dom, 'button[data-action="clear"]');
+  clickDigits(dom, '1');
+  click(dom, 'button[data-action="operator"][data-operator="/"]');
+  clickDigits(dom, '3000000');
+  click(dom, 'button[data-action="equals"]');
+  const shown = displayText(dom);
+  assert.doesNotMatch(shown, /e[+-]/i);
+  assert.equal(Number(shown), Number((1 / 3000000).toPrecision(15)));
+});
+
 // A `maximumFractionDigits`-based renderer (an earlier version of this fix)
 // caps out at 20-100 fraction digits, so chaining divisions down to 1e-21
 // silently rounds the value to zero instead of just misformatting it --
